@@ -2,13 +2,18 @@ FROM python:3.11-slim
 
 # Install compilation tools (required for tgcrypto) and unzip/curl for v2ray
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libffi-dev curl unzip \
+    gcc g++ libffi-dev curl unzip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install v2ray
-COPY --from=v2fly/v2ray-core:latest /usr/bin/v2ray /usr/bin/v2ray
-COPY --from=v2fly/v2ray-core:latest /usr/share/v2ray/geoip.dat /usr/share/v2ray/geoip.dat
-COPY --from=v2fly/v2ray-core:latest /usr/share/v2ray/geosite.dat /usr/share/v2ray/geosite.dat
+RUN curl -L -o /tmp/v2ray.zip https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip \
+    && unzip /tmp/v2ray.zip -d /tmp/v2ray \
+    && mv /tmp/v2ray/v2ray /usr/bin/v2ray \
+    && mkdir -p /usr/share/v2ray \
+    && mv /tmp/v2ray/geoip.dat /usr/share/v2ray/ \
+    && mv /tmp/v2ray/geosite.dat /usr/share/v2ray/ \
+    && chmod +x /usr/bin/v2ray \
+    && rm -rf /tmp/v2ray /tmp/v2ray.zip
 
 WORKDIR /app
 
