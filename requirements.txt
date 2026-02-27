@@ -7,3 +7,4 @@ aiohttp==3.10.5
 kurigram==2.2.19
 tgcrypto==1.2.5
 aiofiles==24.1.0
+PyMySQL==1.1.0
