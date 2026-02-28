@@ -4,10 +4,10 @@ import re
 import time
 from fastapi import APIRouter, Depends
 from pyrogram import Client
-from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest, NameRequest
+from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest, NameRequest, WorkerPingRequest
 from app.core.telegram import TelegramPanel
 from app.core.auth import get_current_user
-from app.core.database import _db
+from app.core.database import _db, list_workers, upsert_worker
 from app.core.tasks import warmup_process, start_keepalive, stop_keepalive, _connect_clients
 from app.state import state
 
@@ -87,6 +87,15 @@ async def get_accounts(user=Depends(get_current_user)):
 @router.get("/groups")
 async def get_groups(user=Depends(get_current_user)):
     return {"groups": TelegramPanel.list_groups()}
+
+@router.get("/workers")
+async def get_workers(user=Depends(get_current_user)):
+    return {"items": list_workers()}
+
+@router.post("/workers/ping")
+async def workers_ping(req: WorkerPingRequest, user=Depends(get_current_user)):
+    upsert_worker(req.name, req.status)
+    return {"status": True}
 
 @router.post("/group/remove")
 async def remove_group(req: NameRequest, user=Depends(get_current_user)):
