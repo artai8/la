@@ -177,18 +177,36 @@ class TelegramPanel:
     @staticmethod
     def get_random_api() -> tuple[int, str]:
         rows = [r for r in list_api_credentials() if r.get("enabled")]
-        if rows:
-            row = random.choice(rows)
-            return int(row["api_id"]), row["api_hash"]
+        valid_rows = []
+        for row in rows:
+            try:
+                api_id = int(row["api_id"])
+            except Exception:
+                continue
+            api_hash = row.get("api_hash") or ""
+            if api_hash:
+                valid_rows.append((api_id, api_hash))
+        if valid_rows:
+            return random.choice(valid_rows)
         try:
             with open("api.txt", "r", encoding="utf-8") as f:
                 lines = [l.strip() for l in f if ":" in l and l.strip()]
         except FileNotFoundError:
             lines = []
-        if not lines:
+        valid_lines = []
+        for line in lines:
+            api_id_str, api_hash = line.split(":", 1)
+            api_id_str = api_id_str.strip()
+            api_hash = api_hash.strip()
+            try:
+                api_id = int(api_id_str)
+            except Exception:
+                continue
+            if api_hash:
+                valid_lines.append((api_id, api_hash))
+        if not valid_lines:
             raise ValueError("No valid API credentials found")
-        api_id_str, api_hash = random.choice(lines).split(":", 1)
-        return int(api_id_str), api_hash
+        return random.choice(valid_lines)
 
     @staticmethod
     async def add_account(phone: str) -> dict:
