@@ -100,6 +100,10 @@ def init_db():
         status text,
         last_ping integer
     )""")
+    try:
+        cur.execute("alter table workers add column last_ping integer")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
