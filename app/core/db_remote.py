@@ -88,12 +88,7 @@ def insert_members(members: list[dict]):
     rows = []
     for m in members:
         rows.append({
-            "username": m.get("username"),
-            "user_id": m.get("id"),
-            "access_hash": m.get("access_hash"),
-            "group_id": m.get("group_id"),
-            "group_title": m.get("group_title"),
-            "status": "active"
+            "username": m.get("username")
         })
     if not rows:
         return
@@ -105,13 +100,7 @@ def insert_chat_messages(messages: list[dict]):
     rows = []
     for m in messages:
         rows.append({
-            "group_id": m.get("group_id"),
-            "group_title": m.get("group_title"),
-            "message_id": m.get("message_id"),
-            "sender_id": m.get("sender_id"),
-            "sender_username": m.get("sender_username"),
-            "content": m.get("content"),
-            "created_at": m.get("created_at")
+            "content": m.get("content")
         })
     if not rows:
         return
@@ -119,21 +108,13 @@ def insert_chat_messages(messages: list[dict]):
     for i in range(0, len(rows), chunk_size):
         _post_rows("chat_messages", rows[i:i + chunk_size])
 
-def fetch_members(group_title: str = "", group_id: int = 0, limit: int = 2000) -> list[str]:
+def fetch_members(limit: int = 2000) -> list[str]:
     params = {"select": "username", "limit": str(limit)}
-    if group_id:
-        params["group_id"] = f"eq.{group_id}"
-    if group_title:
-        params["group_title"] = f"eq.{group_title}"
     rows = _get_rows("members", params)
     return [r.get("username") for r in rows if r.get("username")]
 
-def fetch_chat_messages(group_title: str = "", group_id: int = 0, limit: int = 500) -> list[str]:
-    params = {"select": "content", "limit": str(limit), "order": "created_at.desc"}
-    if group_id:
-        params["group_id"] = f"eq.{group_id}"
-    if group_title:
-        params["group_title"] = f"eq.{group_title}"
+def fetch_chat_messages(limit: int = 500) -> list[str]:
+    params = {"select": "content", "limit": str(limit)}
     rows = _get_rows("chat_messages", params)
     return [r.get("content") for r in rows if r.get("content")]
 

@@ -19,7 +19,7 @@ class ExtractRequest(BaseModel):
     auto_load: bool = False
     exclude_admin: bool = False
     exclude_bot: bool = True
-    use_remote_db: bool = False
+    use_remote_db: bool = True
 
 class ExtractBatchRequest(BaseModel):
     links: list[str]
@@ -28,7 +28,7 @@ class ExtractBatchRequest(BaseModel):
     auto_load: bool = False
     exclude_admin: bool = False
     exclude_bot: bool = True
-    use_remote_db: bool = False
+    use_remote_db: bool = True
 
 class ScrapeRequest(BaseModel):
     link: str
@@ -38,11 +38,13 @@ class ScrapeRequest(BaseModel):
     save_to_remote: bool = True
 
 class AdderRequest(BaseModel):
-    link: str
+    link: str = ""
+    links: list[str] = []
     number_add: int
     number_account: int
     use_remote_db: bool = False
     group_name: str = ""
+    group_names: list[str] = []
 
 class NameRequest(BaseModel):
     name: str
@@ -126,6 +128,8 @@ class UserCreateRequest(BaseModel):
 class JoinRequest(BaseModel):
     links: list[str]
     number_account: int = 0
+    batch_size: int = 0
+    account_delay: int = 1
 
 class InviteRequest(BaseModel):
     link: str
@@ -136,7 +140,8 @@ class InviteRequest(BaseModel):
     use_remote_db: bool = False
 
 class ChatRequest(BaseModel):
-    link: str
+    link: str = ""
+    links: list[str] = []
     messages: list[str] = []
     number_account: int = 1
     min_delay: int = 10

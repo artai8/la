@@ -195,21 +195,8 @@
         <div class="tab-content" id="tab-adder">
             <div class="panel-grid">
                 <div class="card">
-                    <h3><i class="fas fa-file-import"></i> 加载成员</h3>
-                    <div class="form-group">
-                        <select id="loadGroupSelect"></select>
-                        <button class="btn btn-primary" onclick="loadMembers()"><i class="fas fa-upload"></i> 加载</button>
-                        <button class="btn btn-warning" onclick="clearMembers()"><i class="fas fa-eraser"></i> 清空</button>
-                        <button class="btn btn-sm" onclick="refreshLoadGroups()"><i class="fas fa-sync-alt"></i></button>
-                    </div>
-                    <div class="stat-box"><span class="stat-label">已加载</span><span class="stat-value" id="loadedCount">0</span></div>
-                </div>
-
-                <div class="card">
-                    <h3><i class="fas fa-cog"></i> 加人配置</h3>
-                    <div class="form-row"><label>来源群名</label><select id="adderGroupSelect"></select></div>
-                    <div class="form-row"><label><input type="checkbox" id="adderUseRemote"> 使用远程数据库成员</label></div>
-                    <div class="form-row"><label>群ID：</label><input type="text" id="adderLink" placeholder="-100123456789"></div>
+                    <h3><i class="fas fa-cog"></i> 拉人入群</h3>
+                    <div class="form-row"><label>目标群ID（每行一个）</label><textarea id="adderLinks" placeholder="-100123456789&#10;-100987654321"></textarea></div>
                     <div class="form-row"><label>每号加人数：</label><input type="number" id="addsPerAccount" min="1" max="30" value="5"></div>
                     <div class="form-row"><label>账号数量：</label><input type="number" id="numAccounts" min="1" value="1"></div>
                     <div class="form-group">
@@ -237,33 +224,19 @@
                     <div class="log-box" id="adderLog"></div>
                 </div>
                 <div class="card">
-                    <h3><i class="fas fa-user-friends"></i> 自动拉群</h3>
-                    <div class="form-row"><label>目标群ID</label><input type="text" id="inviteTarget" placeholder="-100123456789"></div>
-                    <div class="form-row"><label>来源群名（每行一个）</label><textarea id="inviteGroupNames" placeholder="group1&#10;group2"></textarea></div>
-                    <div class="form-row"><label><input type="checkbox" id="inviteUseRemote"> 使用远程数据库成员</label></div>
-                    <div class="form-row"><label>每号加人数</label><input type="number" id="inviteAddsPerAccount" value="5"></div>
-                    <div class="form-row"><label>账号数量</label><input type="number" id="inviteNumAccounts" value="1"></div>
-                    <div class="form-row">
-                        <label><input type="checkbox" id="inviteUseLoaded" checked> 使用已加载列表</label>
-                    </div>
-                    <div class="form-group">
-                        <button class="btn btn-success" onclick="startInvite()"><i class="fas fa-rocket"></i> 开始</button>
-                        <button class="btn btn-danger" onclick="stopAdder()"><i class="fas fa-ban"></i> 停止</button>
-                    </div>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-sign-in-alt"></i> 自动加群</h3>
+                    <h3><i class="fas fa-sign-in-alt"></i> 分批入群</h3>
                     <div class="form-row"><label>群链接（每行一个）</label><textarea id="joinLinks" placeholder="@group1&#10;@group2"></textarea></div>
                     <div class="form-row"><label>账号数量</label><input type="number" id="joinNumAccounts" value="1"></div>
+                    <div class="form-row"><label>每批账号数</label><input type="number" id="joinBatchSize" value="5"></div>
+                    <div class="form-row"><label>每账号延迟（秒）</label><input type="number" id="joinAccountDelay" value="3"></div>
                     <div class="form-group">
                         <button class="btn btn-primary" onclick="startJoin()"><i class="fas fa-play"></i> 开始</button>
                     </div>
                 </div>
                 <div class="card">
                     <h3><i class="fas fa-comments"></i> 自动群聊</h3>
-                    <div class="form-row"><label>群链接/ID</label><input type="text" id="chatLink" placeholder="@groupname"></div>
+                    <div class="form-row"><label>群链接/ID（每行一个）</label><textarea id="chatLinks" placeholder="@group1&#10;@group2"></textarea></div>
                     <div class="form-row"><label>消息（每行一条）</label><textarea id="chatMessages" placeholder="hello&#10;hi"></textarea></div>
-                    <div class="form-row"><label><input type="checkbox" id="chatUseRemote"> 使用远程数据库内容</label></div>
                     <div class="form-row"><label>最小间隔（秒）</label><input type="number" id="chatMinDelay" value="10"></div>
                     <div class="form-row"><label>最大间隔（秒）</label><input type="number" id="chatMaxDelay" value="30"></div>
                     <div class="form-row"><label>最大发送数</label><input type="number" id="chatMaxMessages" value="50"></div>
@@ -452,42 +425,6 @@
                         <button class="btn btn-primary" onclick="importProxies()"><i class="fas fa-file-import"></i> 导入</button>
                     </div>
                     <div class="list-container" id="proxyList"></div>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-ban"></i> 黑名单</h3>
-                    <div class="form-group">
-                        <input type="text" id="blacklistInput" placeholder="@username">
-                        <button class="btn btn-danger" onclick="addBlacklist()"><i class="fas fa-plus"></i> 添加</button>
-                    </div>
-                    <div class="list-container" id="blacklistList"></div>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-check-circle"></i> 白名单</h3>
-                    <div class="form-group">
-                        <input type="text" id="whitelistInput" placeholder="@username">
-                        <button class="btn btn-success" onclick="addWhitelist()"><i class="fas fa-plus"></i> 添加</button>
-                    </div>
-                    <div class="list-container" id="whitelistList"></div>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-user-shield"></i> 用户管理</h3>
-                    <div class="form-group">
-                        <input type="text" id="newUsername" placeholder="用户名">
-                        <input type="password" id="newPassword" placeholder="密码">
-                        <select id="newRole">
-                            <option value="admin">管理员</option>
-                            <option value="operator">操作员</option>
-                        </select>
-                        <button class="btn btn-primary" onclick="addUser()"><i class="fas fa-user-plus"></i> 添加</button>
-                    </div>
-                    <div class="list-container" id="userList"></div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-server"></i> 工作进程</h3>
-                        <button class="btn btn-sm" onclick="refreshWorkers()"><i class="fas fa-sync-alt"></i></button>
-                    </div>
-                    <div class="list-container" id="workerList"></div>
                 </div>
             </div>
         </div>

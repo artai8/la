@@ -168,11 +168,7 @@ async def extract_process(task_id: int, payload: dict):
                 if exclude_keywords and any(k in text for k in exclude_keywords):
                     continue
                 members.append({
-                    "username": u_name,
-                    "id": m.user.id,
-                    "access_hash": m.user.access_hash,
-                    "group_id": chat.id,
-                    "group_title": chat.title
+                    "username": u_name
                 })
                 if u_name:
                     all_usernames.append(u_name)
@@ -230,13 +226,7 @@ async def scrape_process(task_id: int, payload: dict):
                 continue
             sender = msg.from_user
             messages.append({
-                "group_id": chat.id,
-                "group_title": chat.title,
-                "message_id": msg.id,
-                "sender_id": sender.id if sender else None,
-                "sender_username": sender.username if sender else "",
-                "content": content,
-                "created_at": int(msg.date.timestamp()) if msg.date else _now_ts()
+                "content": content
             })
         save_remote = payload.get("save_to_remote")
         if save_remote is None:
@@ -290,6 +280,8 @@ def _apply_list_filters(usernames: list[str]) -> list[str]:
 async def join_process(task_id: int, payload: dict):
     links = payload.get("links") or []
     number_account = int(payload.get("number_account") or 0)
+    batch_size = int(payload.get("batch_size") or 0)
+    account_delay = int(payload.get("account_delay") or 0)
     links = [l for l in links if str(l).strip()]
     if not links:
         append_task_log(task_id, "No links provided")
@@ -301,24 +293,30 @@ async def join_process(task_id: int, payload: dict):
     if not phones:
         append_task_log(task_id, "No accounts available for join")
         return
+    if batch_size <= 0:
+        batch_size = len(phones)
+    if account_delay < 0:
+        account_delay = 0
     
-    clients = await _connect_clients(phones)
-    if not clients:
-        append_task_log(task_id, "Failed to connect any account")
-        return
-    
-    try:
-        for link in links:
+    for start in range(0, len(phones), batch_size):
+        batch = phones[start:start + batch_size]
+        clients = await _connect_clients(batch)
+        if not clients:
+            append_task_log(task_id, "Failed to connect any account")
+            continue
+        try:
+            for link in links:
+                for cli in clients:
+                    res = await TelegramPanel.join_chat(cli, link)
+                    if res.get("ok"):
+                        append_task_log(task_id, f"Joined {res.get('title') or ''} {res.get('link')}")
+                    else:
+                        append_task_log(task_id, f"Join failed {link}: {res.get('error')}")
+                    if account_delay > 0:
+                        await asyncio.sleep(account_delay)
+        finally:
             for cli in clients:
-                res = await TelegramPanel.join_chat(cli, link)
-                if res.get("ok"):
-                    append_task_log(task_id, f"Joined {res.get('title') or ''} {res.get('link')}")
-                else:
-                    append_task_log(task_id, f"Join failed {link}: {res.get('error')}")
-                await asyncio.sleep(random.uniform(1, 3))
-    finally:
-        for cli in clients:
-            await TelegramPanel._safe_disconnect(cli)
+                await TelegramPanel._safe_disconnect(cli)
 
 async def invite_process(task_id: int, payload: dict):
     link = payload.get("link")
@@ -333,9 +331,7 @@ async def invite_process(task_id: int, payload: dict):
     use_remote_db = bool(payload.get("use_remote_db"))
     if use_remote_db:
         limit = int(get_setting("max_members_limit") or 2000)
-        targets = []
-        for name in group_names:
-            targets.extend(fetch_members(group_title=name, limit=limit))
+        targets = fetch_members(limit=limit)
     else:
         targets = _collect_usernames(group_names, use_loaded)
     targets = _apply_list_filters(targets)
@@ -390,14 +386,18 @@ async def invite_process(task_id: int, payload: dict):
             await TelegramPanel._safe_disconnect(cli)
 
 async def chat_process(task_id: int, payload: dict):
-    link = payload.get("link")
+    links = payload.get("links") or []
+    if not links:
+        link = payload.get("link")
+        if link:
+            links = [link]
     messages = payload.get("messages") or []
     number_account = int(payload.get("number_account") or 1)
     min_delay = int(payload.get("min_delay") or 1)
     max_delay = int(payload.get("max_delay") or max(min_delay, 1))
     max_messages = int(payload.get("max_messages") or 1)
     use_remote_db = bool(payload.get("use_remote_db"))
-    if not link:
+    if not links:
         append_task_log(task_id, "No target link provided")
         return
     if max_delay < min_delay:
@@ -417,32 +417,33 @@ async def chat_process(task_id: int, payload: dict):
     
     state.chat_active = True
     try:
-        remote_loaded = False
-        for cli in clients:
-            res = await TelegramPanel.join_chat(cli, link)
-            if not res.get("ok"):
-                append_task_log(task_id, f"Join chat failed: {res.get('error')}")
-                continue
-            chat_id = res.get("id")
-            chat_title = res.get("title") or ""
-            if use_remote_db and not remote_loaded:
-                remote_messages = fetch_chat_messages(group_id=chat_id, group_title=chat_title, limit=max_messages * number_account)
-                if remote_messages:
-                    messages = messages + remote_messages
-                remote_loaded = True
-            if not messages:
-                append_task_log(task_id, "No messages provided")
-                return
-            count = 0
-            while count < max_messages:
-                msg = random.choice(messages)
-                try:
-                    await cli.send_message(chat_id, msg)
-                    append_task_log(task_id, f"Sent message {count + 1}")
-                except Exception as e:
-                    append_task_log(task_id, f"Send failed: {e}")
-                count += 1
-                await asyncio.sleep(random.uniform(min_delay, max_delay))
+        for link in links:
+            remote_loaded = False
+            for cli in clients:
+                res = await TelegramPanel.join_chat(cli, link)
+                if not res.get("ok"):
+                    append_task_log(task_id, f"Join chat failed: {res.get('error')}")
+                    continue
+                chat_id = res.get("id")
+                messages_pool = list(messages)
+                if use_remote_db and not remote_loaded:
+                    remote_messages = fetch_chat_messages(limit=max_messages * number_account)
+                    if remote_messages:
+                        messages_pool.extend(remote_messages)
+                    remote_loaded = True
+                if not messages_pool:
+                    append_task_log(task_id, "No messages provided")
+                    return
+                count = 0
+                while count < max_messages:
+                    msg = random.choice(messages_pool)
+                    try:
+                        await cli.send_message(chat_id, msg)
+                        append_task_log(task_id, f"Sent message {count + 1}")
+                    except Exception as e:
+                        append_task_log(task_id, f"Send failed: {e}")
+                    count += 1
+                    await asyncio.sleep(random.uniform(min_delay, max_delay))
     finally:
         state.chat_active = False
         for cli in clients:
@@ -499,17 +500,20 @@ async def adder_process(task_id: int, payload: dict):
     state.status = True
     state.reset_adder()
     try:
-        link = payload.get("link")
+        links = payload.get("links") or []
+        if not links:
+            link = payload.get("link")
+            if link:
+                links = [link]
         number_add = int(payload.get("number_add") or 0)
         number_account = int(payload.get("number_account") or 0)
-        use_remote_db = bool(payload.get("use_remote_db"))
-        if not link:
+        use_remote_db = bool(payload.get("use_remote_db")) or payload.get("use_remote_db") is None
+        if not links:
             append_task_log(task_id, "No target link provided")
             return
         if use_remote_db:
-            group_name = payload.get("group_name") or ""
             limit = int(get_setting("max_members_limit") or 2000)
-            targets = fetch_members(group_title=group_name, limit=limit)
+            targets = fetch_members(limit=limit)
         else:
             targets = _normalize_usernames(state.members)
         targets = _apply_list_filters(targets)
@@ -532,37 +536,38 @@ async def adder_process(task_id: int, payload: dict):
             return
         
         try:
-            chat_id = None
-            for cli in clients:
-                res = await TelegramPanel.join_chat(cli, link)
-                if res.get("ok"):
-                    chat_id = res.get("id")
-                    break
-            if not chat_id:
-                append_task_log(task_id, "Failed to resolve target chat")
-                return
-            
-            target_queue = list(targets)
-            random.shuffle(target_queue)
-            for cli in clients:
-                added = 0
-                while target_queue and added < number_add and state.status:
-                    username = target_queue.pop(0)
-                    if is_member_added(username):
-                        continue
-                    try:
-                        await cli.add_chat_members(chat_id, username)
-                        record_member_added(username, "", task_id)
-                        state.ok_count += 1
-                        append_task_log(task_id, f"Added {username}")
-                        added += 1
-                    except Exception as e:
-                        record_member_added(username, "", task_id)
-                        state.bad_count += 1
-                        append_task_log(task_id, f"Add failed {username}: {e}")
-                    await asyncio.sleep(random.uniform(1, 3))
-                if not state.status:
-                    break
+            for link in links:
+                chat_id = None
+                for cli in clients:
+                    res = await TelegramPanel.join_chat(cli, link)
+                    if res.get("ok"):
+                        chat_id = res.get("id")
+                        break
+                if not chat_id:
+                    append_task_log(task_id, "Failed to resolve target chat")
+                    continue
+                
+                target_queue = list(targets)
+                random.shuffle(target_queue)
+                for cli in clients:
+                    added = 0
+                    while target_queue and added < number_add and state.status:
+                        username = target_queue.pop(0)
+                        if is_member_added(username):
+                            continue
+                        try:
+                            await cli.add_chat_members(chat_id, username)
+                            record_member_added(username, "", task_id)
+                            state.ok_count += 1
+                            append_task_log(task_id, f"Added {username}")
+                            added += 1
+                        except Exception as e:
+                            record_member_added(username, "", task_id)
+                            state.bad_count += 1
+                            append_task_log(task_id, f"Add failed {username}: {e}")
+                        await asyncio.sleep(random.uniform(1, 3))
+                    if not state.status:
+                        break
         finally:
             for cli in clients:
                 await TelegramPanel._safe_disconnect(cli)

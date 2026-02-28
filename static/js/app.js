@@ -54,7 +54,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.tab === 'extract') refreshGroups();
         if (btn.dataset.tab === 'adder') { refreshLoadGroups(); refreshAccounts(); }
         if (btn.dataset.tab === 'tasks') { refreshTasks(); refreshTaskGroups(); }
-        if (btn.dataset.tab === 'admin') { loadSettings(); refreshApis(); refreshProxies(); refreshLists(); refreshUsers(); refreshWorkers(); }
+        if (btn.dataset.tab === 'admin') { loadSettings(); refreshApis(); refreshProxies(); }
     });
 });
 
@@ -358,7 +358,7 @@ async function checkSpamRestriction() {
 // ==================== Extract ====================
 async function refreshGroups() {
     const d = await api('/api/groups');
-    ['groupSelect', 'loadGroupSelect', 'adderGroupSelect'].forEach(id => {
+    ['groupSelect', 'loadGroupSelect'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) {
             sel.innerHTML = '';
@@ -463,14 +463,13 @@ async function clearMembers() {
 }
 
 async function startAdder() {
-    const link = document.getElementById('adderLink').value.trim();
+    const links = (document.getElementById('adderLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const number_add = parseInt(document.getElementById('addsPerAccount').value);
     const number_account = parseInt(document.getElementById('numAccounts').value);
-    const use_remote_db = document.getElementById('adderUseRemote').checked;
-    const group_name = document.getElementById('adderGroupSelect').value;
-    if (!link) return showToast('请输入群ID', 'warning');
+    const use_remote_db = true;
+    if (!links.length) return showToast('请输入群ID', 'warning');
     document.getElementById('adderLog').textContent = '';
-    const d = await api('/api/adder/start', 'POST', { link, number_add, number_account, use_remote_db, group_name });
+    const d = await api('/api/adder/start', 'POST', { links, number_add, number_account, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -479,37 +478,26 @@ async function stopAdder() {
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
-async function startInvite() {
-    const link = document.getElementById('inviteTarget').value.trim();
-    const group_names = (document.getElementById('inviteGroupNames').value || '').split('\n').map(v => v.trim()).filter(Boolean);
-    const number_add = parseInt(document.getElementById('inviteAddsPerAccount').value);
-    const number_account = parseInt(document.getElementById('inviteNumAccounts').value);
-    const use_loaded = document.getElementById('inviteUseLoaded').checked;
-    const use_remote_db = document.getElementById('inviteUseRemote').checked;
-    if (!link) return showToast('请输入群ID', 'warning');
-    const d = await api('/api/adder/invite', 'POST', { link, group_names, number_add, number_account, use_loaded, use_remote_db });
-    showToast(d.message, d.status ? 'success' : 'error');
-}
-
 async function startJoin() {
     const links = (document.getElementById('joinLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const number_account = parseInt(document.getElementById('joinNumAccounts').value);
+    const batch_size = parseInt(document.getElementById('joinBatchSize').value);
+    const account_delay = parseInt(document.getElementById('joinAccountDelay').value);
     if (!links.length) return showToast('请输入链接', 'warning');
-    const d = await api('/api/adder/join', 'POST', { links, number_account });
+    const d = await api('/api/adder/join', 'POST', { links, number_account, batch_size, account_delay });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
 async function startChat() {
-    const link = document.getElementById('chatLink').value.trim();
+    const links = (document.getElementById('chatLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const messages = (document.getElementById('chatMessages').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const number_account = parseInt(document.getElementById('chatNumAccounts').value);
     const min_delay = parseInt(document.getElementById('chatMinDelay').value);
     const max_delay = parseInt(document.getElementById('chatMaxDelay').value);
     const max_messages = parseInt(document.getElementById('chatMaxMessages').value);
-    const use_remote_db = document.getElementById('chatUseRemote').checked;
-    if (!link) return showToast('请输入群链接', 'warning');
-    if (!messages.length && !use_remote_db) return showToast('请输入消息', 'warning');
-    const d = await api('/api/adder/chat', 'POST', { link, messages, number_account, min_delay, max_delay, max_messages, use_remote_db });
+    const use_remote_db = true;
+    if (!links.length) return showToast('请输入群链接', 'warning');
+    const d = await api('/api/adder/chat', 'POST', { links, messages, number_account, min_delay, max_delay, max_messages, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
