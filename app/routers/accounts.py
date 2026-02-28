@@ -4,7 +4,7 @@ import re
 import time
 from fastapi import APIRouter, Depends
 from pyrogram import Client
-from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest
+from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest, NameRequest
 from app.core.telegram import TelegramPanel
 from app.core.auth import get_current_user
 from app.core.database import _db
@@ -83,6 +83,17 @@ async def get_accounts(user=Depends(get_current_user)):
             "group": rows.get(p, "default")
         })
     return {"accounts": result, "count": len(accs)}
+
+@router.get("/groups")
+async def get_groups(user=Depends(get_current_user)):
+    return {"groups": TelegramPanel.list_groups()}
+
+@router.post("/group/remove")
+async def remove_group(req: NameRequest, user=Depends(get_current_user)):
+    if not req.name:
+        return {"status": False, "message": "名称不能为空"}
+    ok = TelegramPanel.remove_group(req.name)
+    return {"status": ok, "message": "已删除" if ok else "不存在"}
 
 @router.post("/accounts/group/set")
 async def set_account_group(req: GroupAssignRequest, user=Depends(get_current_user)):
