@@ -167,3 +167,7 @@ def save_account_session(phone: str) -> bool:
 def fetch_account_session(phone: str) -> dict:
     rows = _get_rows("account_sessions", {"select": "phone,session_b64,json_data", "phone": f"eq.{phone}", "limit": "1"})
     return rows[0] if rows else {}
+
+def fetch_account_sessions(limit: int = 2000) -> list[dict]:
+    rows = _get_rows("account_sessions", {"select": "phone,session_b64,json_data", "limit": str(limit)})
+    return rows or []

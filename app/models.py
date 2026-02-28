@@ -45,6 +45,8 @@ class AdderRequest(BaseModel):
     use_remote_db: bool = False
     group_name: str = ""
     group_names: list[str] = []
+    min_delay: int = 300
+    max_delay: int = 600
 
 class NameRequest(BaseModel):
     name: str
@@ -129,7 +131,7 @@ class JoinRequest(BaseModel):
     links: list[str]
     number_account: int = 0
     batch_size: int = 0
-    account_delay: int = 1
+    account_delay: int = 300
 
 class InviteRequest(BaseModel):
     link: str
@@ -144,8 +146,8 @@ class ChatRequest(BaseModel):
     links: list[str] = []
     messages: list[str] = []
     number_account: int = 1
-    min_delay: int = 10
-    max_delay: int = 30
+    min_delay: int = 300
+    max_delay: int = 600
     max_messages: int = 50
     use_remote_db: bool = False
 
@@ -153,8 +155,8 @@ class DMRequest(BaseModel):
     group_name: str
     messages: list[str]
     number_account: int = 1
-    min_delay: int = 10
-    max_delay: int = 30
+    min_delay: int = 300
+    max_delay: int = 600
     use_loaded: bool = True
 
 class ProfileEditRequest(BaseModel):

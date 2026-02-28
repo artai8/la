@@ -20,6 +20,8 @@ class AppState:
     extract_running: int = 0
     chat_active: bool = False
     keepalive: bool = False
+    auto_online: bool = False
+    auto_warmup: bool = False
 
     def __post_init__(self):
         self._lock = asyncio.Lock()
@@ -59,6 +61,8 @@ class AppState:
             "extract_running": self.extract_running,
             "chat_active": self.chat_active,
             "keepalive": self.keepalive,
+            "auto_online": self.auto_online,
+            "auto_warmup": self.auto_warmup,
         }
 
 state = AppState()

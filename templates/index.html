@@ -57,28 +57,13 @@
                         </div>
                     </div>
                     <div id="loginStatus" class="status-msg"></div>
-                </div>
-
-                <div class="card">
-                    <h3><i class="fas fa-trash-alt"></i> 删除账号</h3>
                     <div class="form-group">
-                        <input type="text" id="removePhoneInput" placeholder="+1234567890">
-                        <button class="btn btn-danger" onclick="removeAccount()"><i class="fas fa-trash"></i> 删除</button>
+                        <button class="btn btn-sm" onclick="importRemoteAccounts()"><i class="fas fa-database"></i> 从数据库拉取账号到列表</button>
                     </div>
                 </div>
 
                 <div class="card">
-                    <h3><i class="fas fa-file-import"></i> 导入 Session 字符串</h3>
-                    <div class="form-row"><label>API ID</label><input type="number" id="sessionApiId" placeholder="123456"></div>
-                    <div class="form-row"><label>API Hash</label><input type="text" id="sessionApiHash" placeholder="abcdef"></div>
-                    <div class="form-row"><label>Session</label><textarea id="sessionString" placeholder="session string"></textarea></div>
-                    <div class="form-group">
-                        <button class="btn btn-success" onclick="importSession()"><i class="fas fa-check"></i> 导入</button>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <h3><i class="fas fa-layer-group"></i> 批量导入 Session</h3>
+                    <h3><i class="fas fa-layer-group"></i> 导入 Session</h3>
                     <p class="hint">每行：API_ID|API_HASH|SESSION</p>
                     <div class="form-row"><label>内容</label><textarea id="sessionBatchLines" placeholder="123|hash|session"></textarea></div>
                     <div class="form-group">
@@ -117,19 +102,17 @@
                         <button class="btn btn-primary btn-sm" onclick="startKeepalive()">批量在线</button>
                         <button class="btn btn-danger btn-sm" onclick="stopKeepalive()">批量下线</button>
                         <button class="btn btn-warning btn-sm" onclick="checkSpamRestriction()">检测双向限制</button>
+                        <button class="btn btn-sm" onclick="checkAccountHealth()">检测账号健康</button>
                     </div>
                     <div class="list-container" id="accountList"></div>
                 </div>
                 <div class="card card-wide">
                     <div class="card-header">
-                        <h3><i class="fas fa-heartbeat"></i> 账号健康</h3>
-                        <button class="btn btn-sm" onclick="checkAccountHealth()"><i class="fas fa-stethoscope"></i></button>
-                    </div>
-                    <div class="list-container" id="accountHealthList"></div>
-                </div>
-                <div class="card card-wide">
-                    <div class="card-header">
                         <h3><i class="fas fa-shield-alt"></i> 双向限制检测</h3>
+                        <div>
+                            <button class="btn btn-sm" onclick="downloadRestrictedAccounts()"><i class="fas fa-download"></i> 下载受限账号</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteRestrictedAccounts()"><i class="fas fa-trash"></i> 一键删除受限账号</button>
+                        </div>
                     </div>
                     <div class="list-container" id="accountRestrictionList"></div>
                 </div>
@@ -176,14 +159,6 @@
                         <button class="btn btn-primary" onclick="startExtractChat()"><i class="fas fa-play"></i> 开始抓取</button>
                     </div>
                 </div>
-                <div class="card">
-                    <h3><i class="fas fa-folder-open"></i> 已保存群</h3>
-                    <div class="form-group">
-                        <select id="groupSelect"></select>
-                        <button class="btn btn-danger" onclick="removeGroup()"><i class="fas fa-trash"></i></button>
-                        <button class="btn btn-sm" onclick="refreshGroups()"><i class="fas fa-sync-alt"></i></button>
-                    </div>
-                </div>
                 <div class="card card-wide">
                     <h3><i class="fas fa-terminal"></i> 日志</h3>
                     <div class="log-box" id="extractLog"></div>
@@ -199,36 +174,19 @@
                     <div class="form-row"><label>目标群ID（每行一个）</label><textarea id="adderLinks" placeholder="-100123456789&#10;-100987654321"></textarea></div>
                     <div class="form-row"><label>每号加人数：</label><input type="number" id="addsPerAccount" min="1" max="30" value="5"></div>
                     <div class="form-row"><label>账号数量：</label><input type="number" id="numAccounts" min="1" value="1"></div>
+                    <div class="form-row"><label>最小延迟（秒）</label><input type="number" id="adderMinDelay" value="300"></div>
+                    <div class="form-row"><label>最大延迟（秒）</label><input type="number" id="adderMaxDelay" value="600"></div>
                     <div class="form-group">
                         <button class="btn btn-success btn-lg" onclick="startAdder()"><i class="fas fa-rocket"></i> 开始</button>
                         <button class="btn btn-danger btn-lg" onclick="stopAdder()"><i class="fas fa-ban"></i> 停止</button>
                     </div>
-                </div>
-
-                <div class="card">
-                    <h3><i class="fas fa-chart-bar"></i> 统计</h3>
-                    <div class="stats-grid">
-                        <div class="stat-box success"><span class="stat-label">成功</span><span class="stat-value big" id="okCount">0</span></div>
-                        <div class="stat-box danger"><span class="stat-label">失败</span><span class="stat-value big" id="badCount">0</span></div>
-                        <div class="stat-box info"><span class="stat-label">运行中</span><span class="stat-value big" id="runCount">0</span></div>
-                        <div class="stat-box neutral"><span class="stat-label">完成</span><span class="stat-value big" id="finalCount">0</span></div>
-                    </div>
-                    <div class="stat-box"><span class="stat-label">状态</span><span class="stat-value" id="adderStatus">未运行</span></div>
-                </div>
-
-                <div class="card card-wide">
-                    <div class="card-header">
-                        <h3><i class="fas fa-terminal"></i> 日志</h3>
-                        <button class="btn btn-sm" onclick="saveLog()"><i class="fas fa-save"></i> 保存</button>
-                    </div>
-                    <div class="log-box" id="adderLog"></div>
                 </div>
                 <div class="card">
                     <h3><i class="fas fa-sign-in-alt"></i> 分批入群</h3>
                     <div class="form-row"><label>群链接（每行一个）</label><textarea id="joinLinks" placeholder="@group1&#10;@group2"></textarea></div>
                     <div class="form-row"><label>账号数量</label><input type="number" id="joinNumAccounts" value="1"></div>
                     <div class="form-row"><label>每批账号数</label><input type="number" id="joinBatchSize" value="5"></div>
-                    <div class="form-row"><label>每账号延迟（秒）</label><input type="number" id="joinAccountDelay" value="3"></div>
+                    <div class="form-row"><label>每账号延迟（秒）</label><input type="number" id="joinAccountDelay" value="300"></div>
                     <div class="form-group">
                         <button class="btn btn-primary" onclick="startJoin()"><i class="fas fa-play"></i> 开始</button>
                     </div>
@@ -237,14 +195,21 @@
                     <h3><i class="fas fa-comments"></i> 自动群聊</h3>
                     <div class="form-row"><label>群链接/ID（每行一个）</label><textarea id="chatLinks" placeholder="@group1&#10;@group2"></textarea></div>
                     <div class="form-row"><label>消息（每行一条）</label><textarea id="chatMessages" placeholder="hello&#10;hi"></textarea></div>
-                    <div class="form-row"><label>最小间隔（秒）</label><input type="number" id="chatMinDelay" value="10"></div>
-                    <div class="form-row"><label>最大间隔（秒）</label><input type="number" id="chatMaxDelay" value="30"></div>
+                    <div class="form-row"><label>最小间隔（秒）</label><input type="number" id="chatMinDelay" value="300"></div>
+                    <div class="form-row"><label>最大间隔（秒）</label><input type="number" id="chatMaxDelay" value="600"></div>
                     <div class="form-row"><label>最大发送数</label><input type="number" id="chatMaxMessages" value="50"></div>
                     <div class="form-row"><label>账号数量</label><input type="number" id="chatNumAccounts" value="1"></div>
                     <div class="form-group">
                         <button class="btn btn-success" onclick="startChat()"><i class="fas fa-play"></i> 开始</button>
                         <button class="btn btn-danger" onclick="stopChat()"><i class="fas fa-stop"></i> 停止</button>
                     </div>
+                </div>
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-terminal"></i> 日志</h3>
+                        <button class="btn btn-sm" onclick="saveLog()"><i class="fas fa-save"></i> 保存</button>
+                    </div>
+                    <div class="log-box" id="adderLog"></div>
                 </div>
             </div>
         </div>
@@ -305,16 +270,16 @@
                         <div class="form-row"><label>群链接/ID</label><input type="text" id="taskChatLink" placeholder="@groupname"></div>
                         <div class="form-row"><label>消息（每行一条）</label><textarea id="taskChatMessages" placeholder="你好&#10;在吗"></textarea></div>
                         <div class="form-row"><label><input type="checkbox" id="taskChatRemote"> 使用远程数据库内容</label></div>
-                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskChatMinDelay" value="10"></div>
-                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskChatMaxDelay" value="30"></div>
+                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskChatMinDelay" value="300"></div>
+                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskChatMaxDelay" value="600"></div>
                         <div class="form-row"><label>最大发送数</label><input type="number" id="taskChatMaxMessages" value="50"></div>
                         <div class="form-row"><label>账号数量</label><input type="number" id="taskChatNumAccounts" value="1"></div>
                     </div>
                     <div id="taskDMSection" style="display:none">
                         <div class="form-row"><label>目标群（已保存）</label><select id="taskDMGroupSelect"></select></div>
                         <div class="form-row"><label>消息</label><textarea id="taskDMMessages" placeholder="你好&#10;在吗"></textarea></div>
-                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskDMMinDelay" value="10"></div>
-                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskDMMaxDelay" value="30"></div>
+                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskDMMinDelay" value="300"></div>
+                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskDMMaxDelay" value="600"></div>
                         <div class="form-row"><label>账号数量</label><input type="number" id="taskDMNumAccounts" value="1"></div>
                     </div>
                     <div id="taskWarmupSection" style="display:none">
@@ -326,8 +291,8 @@
                         <div class="form-row"><label>群链接/ID</label><input type="text" id="taskSequenceChatLink" placeholder="@groupname"></div>
                         <div class="form-row"><label>聊天消息（每行一条）</label><textarea id="taskSequenceMessages" placeholder="你好&#10;在吗"></textarea></div>
                         <div class="form-row"><label><input type="checkbox" id="taskSequenceChatRemote"> 使用远程数据库内容</label></div>
-                        <div class="form-row"><label>聊天最小间隔（秒）</label><input type="number" id="taskSequenceMinDelay" value="10"></div>
-                        <div class="form-row"><label>聊天最大间隔（秒）</label><input type="number" id="taskSequenceMaxDelay" value="30"></div>
+                        <div class="form-row"><label>聊天最小间隔（秒）</label><input type="number" id="taskSequenceMinDelay" value="300"></div>
+                        <div class="form-row"><label>聊天最大间隔（秒）</label><input type="number" id="taskSequenceMaxDelay" value="600"></div>
                         <div class="form-row"><label>每号发送数</label><input type="number" id="taskSequenceChatPerAccount" value="10"></div>
                         <div class="form-row"><label>随机并发最小/最大</label><input type="number" id="taskSequencePickMin" value="1"><input type="number" id="taskSequencePickMax" value="3"></div>
                         <div class="form-row"><label>拉人目标群ID</label><input type="text" id="taskSequenceAddLink" placeholder="-100123456789"></div>

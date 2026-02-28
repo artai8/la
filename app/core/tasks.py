@@ -12,14 +12,23 @@ from app.core.telegram import TelegramPanel
 from app.core.database import (
     create_task, update_task_status, set_task_running, append_task_log,
     get_due_task, get_task_log, delete_task, is_member_added, record_member_added,
-    list_list_values, get_setting, _now_ts, list_proxies
+    list_list_values, get_setting, _now_ts, get_proxy, set_proxy_enabled,
+    update_proxy_check, get_account_proxy_id, clear_account_proxy_id
 )
-from app.core.db_remote import insert_members, insert_chat_messages, fetch_members, fetch_chat_messages
+from app.core.db_remote import insert_members, insert_chat_messages, fetch_members, fetch_chat_messages, delete_proxy
+from app.core.v2ray import V2RayController
 
 # Global keepalive control
 _keepalive_clients: list[Client] = []
 _keepalive_stop_event = asyncio.Event()
 _keepalive_task: Optional[asyncio.Task] = None
+
+_auto_clients: dict[str, Client] = {}
+_auto_stop_event = asyncio.Event()
+_auto_task: Optional[asyncio.Task] = None
+_auto_retry_counts: dict[str, int] = {}
+_auto_blocked: set[str] = set()
+_auto_max_retries = 3
 
 async def _connect_clients(phones: list[str]) -> list[Client]:
     clients = []
@@ -31,7 +40,7 @@ async def _connect_clients(phones: list[str]) -> list[Client]:
             if not data:
                 return None
             proxy, _ = await TelegramPanel.get_proxy(account_id=phone, ip=data.get("proxy"))
-            cli = Client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy)
+            cli = TelegramPanel.build_client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy, phone=phone)
             try:
                 await cli.connect()
                 return cli
@@ -105,6 +114,156 @@ async def warmup_process(phones: list[str], duration_min: int, actions: list[str
 
     for cli in clients:
         await TelegramPanel._safe_disconnect(cli)
+
+def _auto_busy() -> bool:
+    return bool(state.status or state.extract or state.chat_active or state.current_task_id)
+
+def _get_max_concurrent() -> int:
+    raw = get_setting("max_concurrent", "")
+    val = None
+    if raw is not None:
+        s = str(raw).strip()
+        if s:
+            try:
+                val = int(s)
+            except Exception:
+                val = None
+    if not val:
+        val = int(state.max_concurrent or 0)
+    if val < 0:
+        val = 0
+    return val
+
+def _apply_max_concurrent(phones: list[str], number_account: int) -> tuple[list[str], int, int]:
+    max_c = _get_max_concurrent()
+    if max_c > 0:
+        if number_account > 0:
+            number_account = min(number_account, max_c)
+        else:
+            number_account = max_c
+    if number_account > 0:
+        phones = phones[:number_account]
+    return phones, number_account, max_c
+
+async def _check_proxy_ok(proxy: dict) -> bool:
+    if not proxy:
+        return False
+    if proxy.get("raw_url"):
+        loop = asyncio.get_running_loop()
+        port, err = await loop.run_in_executor(None, V2RayController.start, proxy["raw_url"])
+        if err:
+            return False
+        ok = await TelegramPanel.check_proxy("127.0.0.1", port, "", "")
+        V2RayController.stop(port)
+        return ok
+    return await TelegramPanel.check_proxy(proxy["host"], proxy["port"], proxy.get("username"), proxy.get("password"))
+
+async def _handle_proxy_failure(phone: str):
+    proxy_id = get_account_proxy_id(phone)
+    if not proxy_id:
+        return
+    proxy = get_proxy(proxy_id)
+    if not proxy:
+        return
+    ok = await _check_proxy_ok(proxy)
+    update_proxy_check(proxy_id, 1 if ok else 0)
+    if ok:
+        return
+    set_proxy_enabled(proxy_id, 0)
+    delete_proxy(proxy)
+    clear_account_proxy_id(phone)
+
+async def _connect_auto_client(phone: str) -> Optional[Client]:
+    if phone in _auto_blocked:
+        return None
+    data = TelegramPanel.get_json_data(phone)
+    if not data:
+        return None
+    retries = _auto_retry_counts.get(phone, 0)
+    while retries < _auto_max_retries:
+        proxy, _ = await TelegramPanel.get_proxy(account_id=phone, ip=data.get("proxy"))
+        cli = TelegramPanel.build_client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy, phone=phone)
+        try:
+            await asyncio.wait_for(cli.connect(), 15)
+            _auto_retry_counts[phone] = 0
+            _auto_blocked.discard(phone)
+            return cli
+        except Exception:
+            await TelegramPanel._safe_disconnect(cli, phone)
+            await _handle_proxy_failure(phone)
+            retries += 1
+            _auto_retry_counts[phone] = retries
+    _auto_blocked.add(phone)
+    return None
+
+async def _disconnect_auto_clients():
+    for phone, cli in list(_auto_clients.items()):
+        await TelegramPanel._safe_disconnect(cli, phone)
+    _auto_clients.clear()
+
+async def _auto_online_loop():
+    state.auto_online = True
+    state.auto_warmup = True
+    while not _auto_stop_event.is_set():
+        if _auto_busy():
+            state.auto_warmup = False
+            if _auto_clients:
+                await _disconnect_auto_clients()
+            await asyncio.sleep(5)
+            continue
+        state.auto_warmup = True
+        phones = TelegramPanel.list_accounts()
+        if not phones:
+            await asyncio.sleep(10)
+            continue
+        for phone in list(_auto_clients.keys()):
+            if phone not in phones:
+                cli = _auto_clients.pop(phone)
+                await TelegramPanel._safe_disconnect(cli, phone)
+                _auto_retry_counts.pop(phone, None)
+                _auto_blocked.discard(phone)
+        for phone in phones:
+            if phone not in _auto_clients:
+                cli = await _connect_auto_client(phone)
+                if cli:
+                    _auto_clients[phone] = cli
+        if not _auto_clients:
+            await asyncio.sleep(5)
+            continue
+        cli = random.choice(list(_auto_clients.values()))
+        try:
+            await cli.get_me()
+            action = random.choice(["scroll", "read"])
+            await TelegramPanel.warmup_action(cli, action)
+        except Exception:
+            drop_phone = None
+            for p, c in _auto_clients.items():
+                if c == cli:
+                    drop_phone = p
+                    break
+            if drop_phone:
+                await TelegramPanel._safe_disconnect(cli, drop_phone)
+                _auto_clients.pop(drop_phone, None)
+        await asyncio.sleep(random.uniform(300, 600))
+
+async def start_auto_online():
+    global _auto_task
+    if _auto_task and not _auto_task.done():
+        return
+    _auto_stop_event.clear()
+    _auto_task = asyncio.create_task(_auto_online_loop())
+
+async def stop_auto_online():
+    global _auto_task
+    _auto_stop_event.set()
+    if _auto_task:
+        try:
+            await _auto_task
+        except asyncio.CancelledError:
+            pass
+    await _disconnect_auto_clients()
+    state.auto_online = False
+    state.auto_warmup = False
 
 async def extract_process(task_id: int, payload: dict):
     state.extract = True
@@ -281,20 +440,21 @@ async def join_process(task_id: int, payload: dict):
     links = payload.get("links") or []
     number_account = int(payload.get("number_account") or 0)
     batch_size = int(payload.get("batch_size") or 0)
-    account_delay = int(payload.get("account_delay") or 0)
+    account_delay = int(payload.get("account_delay") or 300)
     links = [l for l in links if str(l).strip()]
     if not links:
         append_task_log(task_id, "No links provided")
         return
     
     phones = TelegramPanel.list_accounts()
-    if number_account > 0:
-        phones = phones[:number_account]
+    phones, number_account, max_c = _apply_max_concurrent(phones, number_account)
     if not phones:
         append_task_log(task_id, "No accounts available for join")
         return
     if batch_size <= 0:
         batch_size = len(phones)
+    if max_c > 0:
+        batch_size = min(batch_size, max_c)
     if account_delay < 0:
         account_delay = 0
     
@@ -342,8 +502,7 @@ async def invite_process(task_id: int, payload: dict):
         number_add = len(targets)
     
     phones = TelegramPanel.list_accounts()
-    if number_account > 0:
-        phones = phones[:number_account]
+    phones, number_account, _ = _apply_max_concurrent(phones, number_account)
     if not phones:
         append_task_log(task_id, "No accounts available for invite")
         return
@@ -380,7 +539,7 @@ async def invite_process(task_id: int, payload: dict):
                 except Exception as e:
                     record_member_added(username, "", task_id)
                     append_task_log(task_id, f"Invite failed {username}: {e}")
-                await asyncio.sleep(random.uniform(1, 3))
+                await asyncio.sleep(random.uniform(300, 600))
     finally:
         for cli in clients:
             await TelegramPanel._safe_disconnect(cli)
@@ -393,8 +552,8 @@ async def chat_process(task_id: int, payload: dict):
             links = [link]
     messages = payload.get("messages") or []
     number_account = int(payload.get("number_account") or 1)
-    min_delay = int(payload.get("min_delay") or 1)
-    max_delay = int(payload.get("max_delay") or max(min_delay, 1))
+    min_delay = int(payload.get("min_delay") or 300)
+    max_delay = int(payload.get("max_delay") or max(min_delay, 600))
     max_messages = int(payload.get("max_messages") or 1)
     use_remote_db = bool(payload.get("use_remote_db"))
     if not links:
@@ -404,8 +563,7 @@ async def chat_process(task_id: int, payload: dict):
         max_delay = min_delay
     
     phones = TelegramPanel.list_accounts()
-    if number_account > 0:
-        phones = phones[:number_account]
+    phones, number_account, _ = _apply_max_concurrent(phones, number_account)
     if not phones:
         append_task_log(task_id, "No accounts available for chat")
         return
@@ -453,8 +611,8 @@ async def dm_process(task_id: int, payload: dict):
     group_name = payload.get("group_name") or ""
     messages = payload.get("messages") or []
     number_account = int(payload.get("number_account") or 1)
-    min_delay = int(payload.get("min_delay") or 1)
-    max_delay = int(payload.get("max_delay") or max(min_delay, 1))
+    min_delay = int(payload.get("min_delay") or 300)
+    max_delay = int(payload.get("max_delay") or max(min_delay, 600))
     use_loaded = bool(payload.get("use_loaded"))
     if not messages:
         append_task_log(task_id, "No messages provided")
@@ -468,8 +626,7 @@ async def dm_process(task_id: int, payload: dict):
         return
     
     phones = TelegramPanel.list_accounts()
-    if number_account > 0:
-        phones = phones[:number_account]
+    phones, number_account, _ = _apply_max_concurrent(phones, number_account)
     if not phones:
         append_task_log(task_id, "No accounts available for DM")
         return
@@ -507,10 +664,14 @@ async def adder_process(task_id: int, payload: dict):
                 links = [link]
         number_add = int(payload.get("number_add") or 0)
         number_account = int(payload.get("number_account") or 0)
+        min_delay = int(payload.get("min_delay") or 300)
+        max_delay = int(payload.get("max_delay") or max(min_delay, 600))
         use_remote_db = bool(payload.get("use_remote_db")) or payload.get("use_remote_db") is None
         if not links:
             append_task_log(task_id, "No target link provided")
             return
+        if max_delay < min_delay:
+            max_delay = min_delay
         if use_remote_db:
             limit = int(get_setting("max_members_limit") or 2000)
             targets = fetch_members(limit=limit)
@@ -524,8 +685,7 @@ async def adder_process(task_id: int, payload: dict):
             number_add = len(targets)
         
         phones = TelegramPanel.list_accounts()
-        if number_account > 0:
-            phones = phones[:number_account]
+        phones, number_account, _ = _apply_max_concurrent(phones, number_account)
         if not phones:
             append_task_log(task_id, "No accounts available for adder")
             return
@@ -565,7 +725,7 @@ async def adder_process(task_id: int, payload: dict):
                             record_member_added(username, "", task_id)
                             state.bad_count += 1
                             append_task_log(task_id, f"Add failed {username}: {e}")
-                        await asyncio.sleep(random.uniform(1, 3))
+                        await asyncio.sleep(random.uniform(min_delay, max_delay))
                     if not state.status:
                         break
         finally:

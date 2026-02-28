@@ -9,7 +9,7 @@ import psutil
 from typing import Optional, Tuple
 from pyrogram import Client, errors, enums
 
-from app.core.database import list_proxies, list_api_credentials, get_setting, _db
+from app.core.database import list_proxies, list_api_credentials, get_setting, _db, ensure_device_profiles
 from app.core.db_remote import fetch_account_session
 from app.core.v2ray import V2RayController
 
@@ -211,6 +211,72 @@ class TelegramPanel:
         return random.choice(valid_lines)
 
     @staticmethod
+    def _ensure_account_row(phone: str):
+        if not phone:
+            return
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute("insert or ignore into accounts(phone, status, last_check, note, group_name, profile_updated_at) values(?, '', 0, '', 'default', 0)", (phone,))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def get_device_profile(phone: str) -> Optional[dict]:
+        if not phone:
+            return None
+        ensure_device_profiles(100)
+        conn = _db()
+        cur = conn.cursor()
+        try:
+            cur.execute("insert or ignore into accounts(phone, status, last_check, note, group_name, profile_updated_at) values(?, '', 0, '', 'default', 0)", (phone,))
+            cur.execute("select device_profile_id from accounts where phone=?", (phone,))
+            row = cur.fetchone()
+            device_id = row["device_profile_id"] if row else None
+            if not device_id:
+                cur.execute("select id from device_profiles order by random() limit 1")
+                pick = cur.fetchone()
+                if pick:
+                    device_id = pick["id"]
+                    cur.execute("update accounts set device_profile_id=? where phone=?", (device_id, phone))
+            if not device_id:
+                conn.commit()
+                conn.close()
+                return None
+            cur.execute("select device_model, system_version, app_version, lang_code, system_lang_code from device_profiles where id=?", (device_id,))
+            profile = cur.fetchone()
+            conn.commit()
+            conn.close()
+            return dict(profile) if profile else None
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return None
+
+    @staticmethod
+    def build_client(name: str, api_id: int, api_hash: str, proxy: dict = None, session_string: str = None, phone: str = None) -> Client:
+        kwargs = {}
+        if proxy:
+            kwargs["proxy"] = proxy
+        if session_string:
+            kwargs["session_string"] = session_string
+        if phone:
+            profile = TelegramPanel.get_device_profile(phone)
+            if profile:
+                if profile.get("device_model"):
+                    kwargs["device_model"] = profile["device_model"]
+                if profile.get("system_version"):
+                    kwargs["system_version"] = profile["system_version"]
+                if profile.get("app_version"):
+                    kwargs["app_version"] = profile["app_version"]
+                if profile.get("lang_code"):
+                    kwargs["lang_code"] = profile["lang_code"]
+                if profile.get("system_lang_code"):
+                    kwargs["system_lang_code"] = profile["system_lang_code"]
+        return Client(name, api_id, api_hash, **kwargs)
+
+    @staticmethod
     async def add_account(phone: str) -> dict:
         if phone in TelegramPanel.list_accounts():
             return {"status": False, "message": f"Account {phone} already exists"}
@@ -221,7 +287,7 @@ class TelegramPanel:
             return {"status": False, "message": str(e)}
 
         proxy, _ = await TelegramPanel.get_proxy(phone)
-        cli = Client(f"account/{phone}", api_id, api_hash, proxy=proxy)
+        cli = TelegramPanel.build_client(f"account/{phone}", api_id, api_hash, proxy=proxy, phone=phone)
 
         try:
             await cli.connect()
@@ -286,6 +352,8 @@ class TelegramPanel:
 
     @staticmethod
     def make_json_data(phone, api_id, api_hash, proxy, fa2) -> bool:
+        TelegramPanel._ensure_account_row(phone)
+        TelegramPanel.get_device_profile(phone)
         return TelegramPanel.save_json(phone, {
             "api_id": api_id, "api_hash": api_hash,
             "proxy": proxy, "fa2": fa2,

@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.database import init_db, upsert_worker
 from app.state import state
 from app.core.telegram import TelegramPanel
-from app.core.tasks import task_loop
+from app.core.tasks import task_loop, start_auto_online
 
 from app.routers import pages, auth, accounts, extract, adder, settings, lists, users, tasks, reports, ws
 
@@ -31,3 +31,4 @@ async def on_startup():
     state.max_concurrent = TelegramPanel.get_max_concurrent()
     print(f"Max concurrent: {state.max_concurrent}")
     asyncio.create_task(task_loop())
+    await start_auto_online()

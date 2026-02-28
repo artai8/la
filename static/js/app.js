@@ -25,14 +25,22 @@ function connectWS() {
 }
 
 function updateState(d) {
-    document.getElementById('extractStatus').textContent = d.extract ? '🟢 运行中' : '⚪ 未运行';
-    document.getElementById('extractCount').textContent = d.members_ext_count;
-    document.getElementById('loadedCount').textContent = d.members_count;
-    document.getElementById('okCount').textContent = d.ok_count;
-    document.getElementById('badCount').textContent = d.bad_count;
-    document.getElementById('runCount').textContent = d.runs.length;
-    document.getElementById('finalCount').textContent = d.final.length;
-    document.getElementById('adderStatus').textContent = d.status ? '🟢 运行中' : '⚪ 未运行';
+    const extractStatus = document.getElementById('extractStatus');
+    if (extractStatus) extractStatus.textContent = d.extract ? '🟢 运行中' : '⚪ 未运行';
+    const extractCount = document.getElementById('extractCount');
+    if (extractCount) extractCount.textContent = d.members_ext_count;
+    const loadedCount = document.getElementById('loadedCount');
+    if (loadedCount) loadedCount.textContent = d.members_count;
+    const okCount = document.getElementById('okCount');
+    if (okCount) okCount.textContent = d.ok_count;
+    const badCount = document.getElementById('badCount');
+    if (badCount) badCount.textContent = d.bad_count;
+    const runCount = document.getElementById('runCount');
+    if (runCount) runCount.textContent = d.runs.length;
+    const finalCount = document.getElementById('finalCount');
+    if (finalCount) finalCount.textContent = d.final.length;
+    const adderStatus = document.getElementById('adderStatus');
+    if (adderStatus) adderStatus.textContent = d.status ? '🟢 运行中' : '⚪ 未运行';
     const ct = document.getElementById('currentTaskInfo');
     if (ct) ct.textContent = d.current_task_id ? `#${d.current_task_id} ${d.current_task_type}` : '空闲';
 }
@@ -60,6 +68,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 // ==================== Accounts Actions ====================
 let selectedAccounts = [];
+let accountHealthMap = {};
+let lastRestrictionResults = [];
 
 async function refreshAccounts() {
     const d = await api('/api/accounts');
@@ -79,7 +89,15 @@ async function refreshAccounts() {
         list.innerHTML += `<div class="group-header" style="background:#f0f0f0;padding:5px;margin-top:5px;font-weight:bold">${gname} (${accs.length}) <button class="btn btn-sm" onclick="selectGroup('${gname}')">全选</button></div>`;
         accs.forEach(a => {
             const isSel = selectedAccounts.includes(a.phone) ? 'checked' : '';
-            list.innerHTML += `<div class="list-item"><input type="checkbox" onchange="toggleAccountSelection('${a.phone}')" ${isSel}> <i class="fas fa-user-check"></i> ${a.phone}</div>`;
+            const health = accountHealthMap[a.phone];
+            let healthHtml = '<span style="margin-left:8px;color:#999;">健康: 未检测</span>';
+            if (health) {
+                const icon = health.ok ? 'fa-check-circle' : 'fa-times-circle';
+                const color = health.ok ? '#2ecc71' : '#e74c3c';
+                const msg = health.message || '';
+                healthHtml = `<span style="margin-left:8px;color:${color};"><i class="fas ${icon}"></i> 健康: ${health.ok ? '正常' : '异常'} ${msg}</span>`;
+            }
+            list.innerHTML += `<div class="list-item"><input type="checkbox" onchange="toggleAccountSelection('${a.phone}')" ${isSel}> <i class="fas fa-user-check"></i> ${a.phone}${healthHtml}</div>`;
         });
     }
 }
@@ -185,15 +203,12 @@ async function api(url, method = 'GET', body = null) {
 
 // ==================== Accounts ====================
 async function checkAccountHealth() {
-    const list = document.getElementById('accountHealthList');
-    list.innerHTML = '检测中...';
     const d = await api('/api/accounts/health');
-    list.innerHTML = '';
+    accountHealthMap = {};
     (d.items || []).forEach(it => {
-        const icon = it.ok ? 'fa-check-circle' : 'fa-times-circle';
-        const color = it.ok ? 'ok' : 'fail';
-        list.innerHTML += `<div class="list-item ${color}"><i class="fas ${icon}"></i> ${it.phone} ${it.message || ''}</div>`;
+        accountHealthMap[it.phone] = { ok: it.ok, message: it.message || '' };
     });
+    refreshAccounts();
 }
 
 async function sendCode() {
@@ -267,6 +282,13 @@ async function cancelLogin() {
     showToast('已取消', 'info');
 }
 
+async function importRemoteAccounts() {
+    const d = await api('/api/accounts/import/remote', 'POST');
+    if (!d.status) return showToast(d.message || '拉取失败', 'error');
+    showToast(`已拉取 ${d.imported || 0}，跳过 ${d.skipped || 0}`, 'info');
+    refreshAccounts();
+}
+
 function resetLoginUI() {
     document.getElementById('codeSection').style.display = 'none';
     document.getElementById('passwordSection').style.display = 'none';
@@ -279,27 +301,6 @@ function setLoginStatus(msg, type) {
     const el = document.getElementById('loginStatus');
     el.textContent = msg;
     el.className = `status-msg ${type}`;
-}
-
-async function removeAccount() {
-    const phone = document.getElementById('removePhoneInput').value.trim();
-    if (!phone) return showToast('请输入手机号', 'warning');
-    const d = await api('/api/account/remove', 'POST', { phone });
-    showToast(d.message, d.status ? 'success' : 'error');
-    if (d.status) { document.getElementById('removePhoneInput').value = ''; refreshAccounts(); }
-}
-
-async function importSession() {
-    const api_id = parseInt(document.getElementById('sessionApiId').value);
-    const api_hash = document.getElementById('sessionApiHash').value.trim();
-    const session_string = document.getElementById('sessionString').value.trim();
-    if (!api_id || !api_hash || !session_string) return showToast('请填写完整信息', 'warning');
-    const d = await api('/api/account/import/session', 'POST', { api_id, api_hash, session_string });
-    showToast(d.status ? `已导入 ${d.phone}` : d.message, d.status ? 'success' : 'error');
-    if (d.status) {
-        document.getElementById('sessionString').value = '';
-        refreshAccounts();
-    }
 }
 
 async function importSessionBatch() {
@@ -345,6 +346,7 @@ async function checkSpamRestriction() {
     const d = await api('/api/accounts/spam/check', 'POST', { phones: selectedAccounts });
     list.innerHTML = '';
     if (!d.status) return showToast(d.message, 'error');
+    lastRestrictionResults = d.items || [];
     (d.items || []).forEach(it => {
         const ok = it.ok;
         const limited = it.limited;
@@ -353,6 +355,31 @@ async function checkSpamRestriction() {
         const label = ok ? (limited ? '受限' : '正常') : '失败';
         list.innerHTML += `<div class="list-item ${cls}"><i class="fas ${ok ? (limited ? 'fa-ban' : 'fa-check-circle') : 'fa-times-circle'}"></i> ${it.phone} ${label} ${text}</div>`;
     });
+}
+
+function downloadRestrictedAccounts() {
+    const limited = (lastRestrictionResults || []).filter(it => it.ok && it.limited).map(it => it.phone);
+    if (!limited.length) return showToast('没有受限账号可下载', 'info');
+    const content = limited.join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'restricted_accounts.txt';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast(`已导出 ${limited.length} 条`, 'success');
+}
+
+async function deleteRestrictedAccounts() {
+    const limited = (lastRestrictionResults || []).filter(it => it.ok && it.limited).map(it => it.phone);
+    if (!limited.length) return showToast('没有受限账号可删除', 'info');
+    const results = await Promise.all(limited.map(phone => api('/api/account/remove', 'POST', { phone })));
+    const ok = results.filter(r => r.status).length;
+    showToast(`已删除 ${ok} 条`, 'info');
+    refreshAccounts();
 }
 
 // ==================== Extract ====================
@@ -466,10 +493,12 @@ async function startAdder() {
     const links = (document.getElementById('adderLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const number_add = parseInt(document.getElementById('addsPerAccount').value);
     const number_account = parseInt(document.getElementById('numAccounts').value);
+    const min_delay = parseInt(document.getElementById('adderMinDelay').value);
+    const max_delay = parseInt(document.getElementById('adderMaxDelay').value);
     const use_remote_db = true;
     if (!links.length) return showToast('请输入群ID', 'warning');
     document.getElementById('adderLog').textContent = '';
-    const d = await api('/api/adder/start', 'POST', { links, number_add, number_account, use_remote_db });
+    const d = await api('/api/adder/start', 'POST', { links, number_add, number_account, min_delay, max_delay, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 

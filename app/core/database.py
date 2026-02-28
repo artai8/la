@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import time
 import json
+import random
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -106,6 +107,19 @@ def init_db():
         cur.execute("alter table accounts add column proxy_id integer")
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute("alter table accounts add column device_profile_id integer")
+    except sqlite3.OperationalError:
+        pass
+    cur.execute("""create table if not exists device_profiles (
+        id integer primary key autoincrement,
+        device_model text,
+        system_version text,
+        app_version text,
+        lang_code text,
+        system_lang_code text,
+        created_at integer not null
+    )""")
     cur.execute("""create table if not exists workers (
         id integer primary key autoincrement,
         name text not null unique,
@@ -118,6 +132,7 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+    ensure_device_profiles(100)
 
 def get_setting(key: str, default: str = "") -> str:
     conn = _db()
@@ -239,6 +254,23 @@ def update_proxy_check(row_id: int, ok: int):
     conn = _db()
     cur = conn.cursor()
     cur.execute("update proxies set last_check=?, ok=? where id=?", (_now_ts(), ok, row_id))
+    conn.commit()
+    conn.close()
+
+def get_account_proxy_id(phone: str) -> int | None:
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("select proxy_id from accounts where phone=?", (phone,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row["proxy_id"]
+
+def clear_account_proxy_id(phone: str):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("update accounts set proxy_id=null where phone=?", (phone,))
     conn.commit()
     conn.close()
 
@@ -450,5 +482,50 @@ def upsert_worker(name: str, status: str):
     conn = _db()
     cur = conn.cursor()
     cur.execute("insert or replace into workers(name, status, last_ping) values(?,?,?)", (name, status, _now_ts()))
+    conn.commit()
+    conn.close()
+
+def ensure_device_profiles(target_count: int = 100):
+    if target_count <= 0:
+        return
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("select count(*) as c from device_profiles")
+    current = cur.fetchone()["c"]
+    need = max(0, target_count - current)
+    if need == 0:
+        conn.close()
+        return
+    device_models = [
+        "iPhone 8", "iPhone X", "iPhone 11", "iPhone 12", "iPhone 13", "iPhone 14",
+        "iPhone SE (2nd)", "iPhone SE (3rd)", "iPad Mini", "iPad Pro 11",
+        "Samsung SM-G991B", "Samsung SM-G996B", "Samsung SM-A525F", "Samsung SM-A536E",
+        "Xiaomi Mi 11", "Xiaomi 12", "Redmi Note 11", "Redmi Note 12",
+        "OnePlus 9", "OnePlus 10T", "Pixel 5", "Pixel 6", "Pixel 7",
+        "Huawei P40", "Huawei P50", "OPPO Find X5", "Vivo V23", "Realme GT Neo"
+    ]
+    system_versions = [
+        "13.7", "14.8.1", "15.7.5", "16.6", "17.2",
+        "Android 10", "Android 11", "Android 12", "Android 13", "Android 14"
+    ]
+    app_versions = [
+        "9.6.1", "9.7.0", "9.7.1", "9.7.2", "9.8.0", "9.8.1", "9.9.0", "10.0.0"
+    ]
+    lang_codes = ["en", "zh", "ru", "es", "pt", "de", "fr", "it", "tr", "id"]
+    system_lang_codes = ["en-US", "zh-CN", "ru-RU", "es-ES", "pt-BR", "de-DE", "fr-FR", "it-IT", "tr-TR", "id-ID"]
+    rows = []
+    for _ in range(need):
+        rows.append((
+            random.choice(device_models),
+            random.choice(system_versions),
+            random.choice(app_versions),
+            random.choice(lang_codes),
+            random.choice(system_lang_codes),
+            _now_ts()
+        ))
+    cur.executemany(
+        "insert into device_profiles(device_model, system_version, app_version, lang_code, system_lang_code, created_at) values(?,?,?,?,?,?)",
+        rows
+    )
     conn.commit()
     conn.close()

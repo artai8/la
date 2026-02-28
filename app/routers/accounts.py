@@ -2,14 +2,15 @@ import asyncio
 import os
 import re
 import time
+import json
+import base64
 from fastapi import APIRouter, Depends
-from pyrogram import Client
 from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest, NameRequest, WorkerPingRequest
 from app.core.telegram import TelegramPanel
 from app.core.auth import get_current_user
 from app.core.database import _db, list_workers, upsert_worker
 from app.core.tasks import warmup_process, start_keepalive, stop_keepalive, _connect_clients
-from app.core.db_remote import save_account_session
+from app.core.db_remote import save_account_session, fetch_account_sessions
 from app.state import state
 
 router = APIRouter(prefix="/api")
@@ -33,7 +34,7 @@ async def _import_session(api_id: int, api_hash: str, session_string: str) -> di
     os.makedirs("data", exist_ok=True)
     temp_name = f"account/import_{int(time.time() * 1000)}"
     temp_path = _session_path(temp_name)
-    cli = Client(temp_name, api_id, api_hash, session_string=session_string)
+    cli = TelegramPanel.build_client(temp_name, api_id, api_hash, session_string=session_string)
     try:
         await asyncio.wait_for(cli.connect(), 15)
         me = await cli.get_me()
@@ -135,7 +136,7 @@ async def update_profile_batch(req: ProfileEditRequest, user=Depends(get_current
                 return {"phone": phone, "ok": False, "error": "No data"}
             
             proxy, _ = await TelegramPanel.get_proxy(account_id=phone, ip=data.get("proxy"))
-            cli = Client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy)
+            cli = TelegramPanel.build_client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy, phone=phone)
             try:
                 await asyncio.wait_for(cli.connect(), 15)
                 res = await TelegramPanel.update_profile(cli, req.first_name, req.last_name, req.about, req.username)
@@ -164,7 +165,7 @@ async def accounts_health(user=Depends(get_current_user)):
             if not data:
                 return {"phone": phone, "ok": False, "message": "missing data"}
             proxy, _ = await TelegramPanel.get_proxy(account_id=phone, ip=data.get("proxy"))
-            cli = Client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy)
+            cli = TelegramPanel.build_client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy, phone=phone)
             try:
                 await asyncio.wait_for(cli.connect(), 12)
                 me = await cli.get_me()
@@ -289,6 +290,41 @@ async def import_session_batch(req: SessionBatchImportRequest, user=Depends(get_
         results.append({"line": line, "ok": res.get("ok"), "phone": res.get("phone"), "message": res.get("message")})
     return {"status": True, "results": results}
 
+@router.post("/accounts/import/remote")
+async def import_remote_accounts(user=Depends(get_current_user)):
+    rows = fetch_account_sessions()
+    if not rows:
+        return {"status": False, "message": "No remote sessions"}
+    os.makedirs("account", exist_ok=True)
+    os.makedirs("data", exist_ok=True)
+    existing = set(TelegramPanel.list_accounts())
+    imported = 0
+    skipped = 0
+    for r in rows:
+        phone = (r.get("phone") or "").strip()
+        session_b64 = r.get("session_b64") or ""
+        json_raw = r.get("json_data") or ""
+        if not phone or not session_b64 or not json_raw:
+            skipped += 1
+            continue
+        if phone in existing:
+            skipped += 1
+            continue
+        try:
+            json_data = json.loads(json_raw) if isinstance(json_raw, str) else json_raw
+        except Exception:
+            skipped += 1
+            continue
+        try:
+            with open(f"account/{phone}.session", "wb") as f:
+                f.write(base64.b64decode(session_b64.encode("utf-8")))
+            with open(f"data/{phone}.json", "w", encoding="utf-8") as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+            imported += 1
+        except Exception:
+            skipped += 1
+    return {"status": True, "imported": imported, "skipped": skipped}
+
 @router.post("/accounts/keepalive/start")
 async def accounts_keepalive_start(req: AccountKeepaliveRequest, user=Depends(get_current_user)):
     phones = [p for p in req.phones if p in TelegramPanel.list_accounts()]
@@ -333,7 +369,7 @@ async def accounts_spam_check(req: AccountSpamCheckRequest, user=Depends(get_cur
             if not data:
                 return {"phone": phone, "ok": False, "message": "No data"}
             proxy, _ = await TelegramPanel.get_proxy(account_id=phone, ip=data.get("proxy"))
-            cli = Client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy)
+            cli = TelegramPanel.build_client(f"account/{phone}", data["api_id"], data["api_hash"], proxy=proxy, phone=phone)
             try:
                 await asyncio.wait_for(cli.connect(), 12)
                 await cli.send_message("SpamBot", "/start")
