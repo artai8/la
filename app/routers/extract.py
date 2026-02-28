@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import APIRouter, Depends
-from app.models import ExtractRequest, ExtractBatchRequest
-from app.core.tasks import extract_process, create_task
+from app.models import ExtractRequest, ExtractBatchRequest, ScrapeRequest
+from app.core.tasks import extract_process, create_task, scrape_process
 from app.state import state
 from app.core.auth import get_current_user
 from app.core.database import _now_ts
@@ -38,3 +38,9 @@ async def extract_batch(req: ExtractBatchRequest, user=Depends(get_current_user)
     # This creates a queued task
     task_id = create_task("extract_batch", req.dict(), _now_ts())
     return {"status": True, "task_id": task_id}
+
+@router.post("/chat")
+async def extract_chat(req: ScrapeRequest, user=Depends(get_current_user)):
+    task_id = create_task("scrape", req.dict(), _now_ts())
+    asyncio.create_task(scrape_process(task_id, req.dict()))
+    return {"status": True, "task_id": task_id, "message": "已开始抓取"}

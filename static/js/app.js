@@ -358,7 +358,7 @@ async function checkSpamRestriction() {
 // ==================== Extract ====================
 async function refreshGroups() {
     const d = await api('/api/groups');
-    ['groupSelect', 'loadGroupSelect'].forEach(id => {
+    ['groupSelect', 'loadGroupSelect', 'adderGroupSelect'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) {
             sel.innerHTML = '';
@@ -379,7 +379,6 @@ async function refreshTaskGroups() {
 function toggleTaskType() {
     const type = document.getElementById('taskType').value;
     const extract = document.getElementById('taskExtractSection');
-    const batch = document.getElementById('taskBatchExtractSection');
     const adder = document.getElementById('taskAdderSection');
     const invite = document.getElementById('taskInviteSection');
     const join = document.getElementById('taskJoinSection');
@@ -389,7 +388,6 @@ function toggleTaskType() {
     const sequence = document.getElementById('taskSequenceSection');
     const scrape = document.getElementById('taskScrapeSection');
     extract.style.display = type === 'extract' ? 'block' : 'none';
-    batch.style.display = type === 'extract_batch' ? 'block' : 'none';
     adder.style.display = type === 'adder' ? 'block' : 'none';
     invite.style.display = type === 'invite' ? 'block' : 'none';
     join.style.display = type === 'join' ? 'block' : 'none';
@@ -412,13 +410,16 @@ async function refreshTaskDMGroups() {
 }
 
 async function startExtract() {
-    const link = document.getElementById('extractLink').value.trim();
-    if (!link) return showToast('请输入链接', 'warning');
+    const links = (document.getElementById('extractLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
+    if (!links.length) return showToast('请输入链接', 'warning');
     document.getElementById('extractLog').textContent = '';
     const include_keywords = (document.getElementById('extractInclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
     const exclude_keywords = (document.getElementById('extractExclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
     const auto_load = document.getElementById('extractAutoLoad').checked;
-    const d = await api('/api/extract/start', 'POST', { link, include_keywords, exclude_keywords, auto_load });
+    const exclude_admin = document.getElementById('extractExcludeAdmin').checked;
+    const exclude_bot = document.getElementById('extractExcludeBot').checked;
+    const use_remote_db = document.getElementById('extractRemote').checked;
+    const d = await api('/api/extract', 'POST', { links, include_keywords, exclude_keywords, auto_load, exclude_admin, exclude_bot, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -427,14 +428,14 @@ async function stopExtract() {
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
-async function startBatchExtract() {
-    const links = (document.getElementById('batchExtractLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
-    if (!links.length) return showToast('请输入链接', 'warning');
-    document.getElementById('extractLog').textContent = '';
-    const include_keywords = (document.getElementById('batchExtractInclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
-    const exclude_keywords = (document.getElementById('batchExtractExclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
-    const auto_load = document.getElementById('batchExtractAutoLoad').checked;
-    const d = await api('/api/extract/batch', 'POST', { links, include_keywords, exclude_keywords, auto_load });
+async function startExtractChat() {
+    const link = document.getElementById('extractChatLink').value.trim();
+    const limit = parseInt(document.getElementById('extractChatLimit').value);
+    const min_length = parseInt(document.getElementById('extractChatMinLength').value);
+    const keywords_blacklist = (document.getElementById('extractChatBlacklist').value || '').split(',').map(v => v.trim()).filter(Boolean);
+    if (!link) return showToast('请输入群链接', 'warning');
+    const save_to_remote = document.getElementById('extractChatRemote').checked;
+    const d = await api('/api/extract/chat', 'POST', { link, limit, min_length, keywords_blacklist, save_to_remote });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -465,9 +466,11 @@ async function startAdder() {
     const link = document.getElementById('adderLink').value.trim();
     const number_add = parseInt(document.getElementById('addsPerAccount').value);
     const number_account = parseInt(document.getElementById('numAccounts').value);
+    const use_remote_db = document.getElementById('adderUseRemote').checked;
+    const group_name = document.getElementById('adderGroupSelect').value;
     if (!link) return showToast('请输入群ID', 'warning');
     document.getElementById('adderLog').textContent = '';
-    const d = await api('/api/adder/start', 'POST', { link, number_add, number_account });
+    const d = await api('/api/adder/start', 'POST', { link, number_add, number_account, use_remote_db, group_name });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -482,8 +485,9 @@ async function startInvite() {
     const number_add = parseInt(document.getElementById('inviteAddsPerAccount').value);
     const number_account = parseInt(document.getElementById('inviteNumAccounts').value);
     const use_loaded = document.getElementById('inviteUseLoaded').checked;
+    const use_remote_db = document.getElementById('inviteUseRemote').checked;
     if (!link) return showToast('请输入群ID', 'warning');
-    const d = await api('/api/adder/invite', 'POST', { link, group_names, number_add, number_account, use_loaded });
+    const d = await api('/api/adder/invite', 'POST', { link, group_names, number_add, number_account, use_loaded, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -502,9 +506,10 @@ async function startChat() {
     const min_delay = parseInt(document.getElementById('chatMinDelay').value);
     const max_delay = parseInt(document.getElementById('chatMaxDelay').value);
     const max_messages = parseInt(document.getElementById('chatMaxMessages').value);
+    const use_remote_db = document.getElementById('chatUseRemote').checked;
     if (!link) return showToast('请输入群链接', 'warning');
-    if (!messages.length) return showToast('请输入消息', 'warning');
-    const d = await api('/api/adder/chat', 'POST', { link, messages, number_account, min_delay, max_delay, max_messages });
+    if (!messages.length && !use_remote_db) return showToast('请输入消息', 'warning');
+    const d = await api('/api/adder/chat', 'POST', { link, messages, number_account, min_delay, max_delay, max_messages, use_remote_db });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -551,16 +556,8 @@ async function loadSettings() {
     document.getElementById('settingChatMax').value = d.settings.chat_interval_max || 45;
     document.getElementById('settingChatMessages').value = d.settings.chat_messages || '';
     document.getElementById('settingLang').value = d.settings.lang || 'zh';
-    document.getElementById('settingDb1Host').value = d.settings.db1_host || '';
-    document.getElementById('settingDb1Port').value = d.settings.db1_port || '3306';
-    document.getElementById('settingDb1User').value = d.settings.db1_user || '';
-    document.getElementById('settingDb1Pass').value = d.settings.db1_pass || '';
-    document.getElementById('settingDb1Name').value = d.settings.db1_name || '';
-    document.getElementById('settingDb2Host').value = d.settings.db2_host || '';
-    document.getElementById('settingDb2Port').value = d.settings.db2_port || '3306';
-    document.getElementById('settingDb2User').value = d.settings.db2_user || '';
-    document.getElementById('settingDb2Pass').value = d.settings.db2_pass || '';
-    document.getElementById('settingDb2Name').value = d.settings.db2_name || '';
+    document.getElementById('settingDbUrl').value = d.settings.db_url || '';
+    document.getElementById('settingDbKey').value = d.settings.db_key || '';
 }
 
 async function saveSettings() {
@@ -575,16 +572,8 @@ async function saveSettings() {
         ['chat_interval_max', document.getElementById('settingChatMax').value],
         ['chat_messages', document.getElementById('settingChatMessages').value],
         ['lang', document.getElementById('settingLang').value],
-        ['db1_host', document.getElementById('settingDb1Host').value],
-        ['db1_port', document.getElementById('settingDb1Port').value],
-        ['db1_user', document.getElementById('settingDb1User').value],
-        ['db1_pass', document.getElementById('settingDb1Pass').value],
-        ['db1_name', document.getElementById('settingDb1Name').value],
-        ['db2_host', document.getElementById('settingDb2Host').value],
-        ['db2_port', document.getElementById('settingDb2Port').value],
-        ['db2_user', document.getElementById('settingDb2User').value],
-        ['db2_pass', document.getElementById('settingDb2Pass').value],
-        ['db2_name', document.getElementById('settingDb2Name').value]
+        ['db_url', document.getElementById('settingDbUrl').value],
+        ['db_key', document.getElementById('settingDbKey').value]
     ];
     for (const [key, value] of settings) {
         await api('/api/settings', 'POST', { key, value });
@@ -666,7 +655,18 @@ async function refreshProxies() {
 async function addProxy() {
     const raw_url = document.getElementById('proxyRawUrl').value.trim();
     if (!raw_url) return showToast('请输入代理链接', 'warning');
-    await api('/api/settings/proxy', 'POST', { raw_url });
+    const d = await api('/api/settings/proxy', 'POST', { raw_url });
+    if (d.status && d.added) {
+        if (d.valid === true) {
+            showToast('添加成功，代理可用', 'success');
+        } else if (d.valid === false) {
+            showToast('添加成功，代理不可用', 'warning');
+        } else {
+            showToast('添加成功，未检测', 'info');
+        }
+    } else {
+        showToast(d.message || '添加失败', 'error');
+    }
     document.getElementById('proxyRawUrl').value = '';
     proxyEditId = null;
     refreshProxies();
@@ -678,7 +678,7 @@ async function removeProxy(id) {
 }
 
 async function testProxy(id) {
-    const d = await api('/api/proxies/test', 'POST', { id });
+    const d = await api('/api/settings/proxy/test', 'POST', { id });
     showToast(d.ok ? '代理可用' : '代理不可用', d.ok ? 'success' : 'error');
     refreshProxies();
 }
@@ -801,21 +801,15 @@ async function createTask() {
     const run_at = runAtRaw ? Math.floor(new Date(runAtRaw).getTime() / 1000) : null;
     let payload = {};
     if (type === 'extract') {
-        const link = document.getElementById('taskExtractLink').value.trim();
-        if (!link) return showToast('请输入链接', 'warning');
+        const links = (document.getElementById('taskExtractLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
+        if (!links.length) return showToast('请输入链接', 'warning');
         const include_keywords = (document.getElementById('taskExtractInclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
         const exclude_keywords = (document.getElementById('taskExtractExclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
         const auto_load = document.getElementById('taskExtractAutoLoad').checked;
+        const exclude_admin = document.getElementById('taskExtractExcludeAdmin').checked;
+        const exclude_bot = document.getElementById('taskExtractExcludeBot').checked;
         const use_remote_db = document.getElementById('taskExtractRemote').checked;
-        payload = { link, include_keywords, exclude_keywords, auto_load, use_remote_db };
-    } else if (type === 'extract_batch') {
-        const links = (document.getElementById('taskBatchLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
-        if (!links.length) return showToast('请输入链接', 'warning');
-        const include_keywords = (document.getElementById('taskBatchInclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
-        const exclude_keywords = (document.getElementById('taskBatchExclude').value || '').split(',').map(v => v.trim()).filter(Boolean);
-        const auto_load = document.getElementById('taskBatchAutoLoad').checked;
-        const use_remote_db = document.getElementById('taskBatchRemote').checked;
-        payload = { links, include_keywords, exclude_keywords, auto_load, use_remote_db };
+        payload = { links, include_keywords, exclude_keywords, auto_load, exclude_admin, exclude_bot, use_remote_db };
     } else if (type === 'scrape') {
         const link = document.getElementById('taskScrapeLink').value.trim();
         const limit = parseInt(document.getElementById('taskScrapeLimit').value);
@@ -890,6 +884,9 @@ async function createTask() {
         if (!messages.length && !use_remote_content) return showToast('请输入消息', 'warning');
         if (!add_link) return showToast('请输入目标群ID', 'warning');
         payload = { chat_link, messages, min_delay, max_delay, chat_per_account, pick_min, pick_max, add_link, group_names, use_loaded, adds_per_account, number_account, keep_online, use_remote_db, use_remote_content };
+    }
+    if (document.getElementById('taskRunDaily').checked) {
+        payload.run_daily = true;
     }
     const d = await api('/api/tasks/create', 'POST', { type, payload, run_at });
     showToast(d.status ? '任务已创建' : d.message, d.status ? 'success' : 'error');

@@ -13,21 +13,36 @@ class PasswordRequest(BaseModel):
     password: str
 
 class ExtractRequest(BaseModel):
-    link: str
+    links: list[str]
     include_keywords: list[str] = []
     exclude_keywords: list[str] = []
     auto_load: bool = False
+    exclude_admin: bool = False
+    exclude_bot: bool = True
+    use_remote_db: bool = False
 
 class ExtractBatchRequest(BaseModel):
     links: list[str]
     include_keywords: list[str] = []
     exclude_keywords: list[str] = []
     auto_load: bool = False
+    exclude_admin: bool = False
+    exclude_bot: bool = True
+    use_remote_db: bool = False
+
+class ScrapeRequest(BaseModel):
+    link: str
+    limit: int = 100
+    min_length: int = 5
+    keywords_blacklist: list[str] = []
+    save_to_remote: bool = True
 
 class AdderRequest(BaseModel):
     link: str
     number_add: int
     number_account: int
+    use_remote_db: bool = False
+    group_name: str = ""
 
 class NameRequest(BaseModel):
     name: str
@@ -57,25 +72,25 @@ class ApiImportRequest(BaseModel):
     lines: str
 
 class ProxyRequest(BaseModel):
-    scheme: str
-    host: str
-    port: int
+    scheme: str = ""
+    host: str = ""
+    port: int = 0
     username: str = ""
     password: str = ""
     raw_url: str = ""
 
 class ProxyUpdateRequest(BaseModel):
     id: int
-    scheme: str
-    host: str
-    port: int
+    scheme: str = ""
+    host: str = ""
+    port: int = 0
     username: str = ""
     password: str = ""
     raw_url: str = ""
 
 class ProxyToggleRequest(BaseModel):
     id: int
-    enabled: bool
+    enabled: bool = False
 
 class ProxyImportRequest(BaseModel):
     lines: str
@@ -118,14 +133,16 @@ class InviteRequest(BaseModel):
     number_add: int
     number_account: int
     use_loaded: bool = True
+    use_remote_db: bool = False
 
 class ChatRequest(BaseModel):
     link: str
-    messages: list[str]
+    messages: list[str] = []
     number_account: int = 1
     min_delay: int = 10
     max_delay: int = 30
     max_messages: int = 50
+    use_remote_db: bool = False
 
 class DMRequest(BaseModel):
     group_name: str

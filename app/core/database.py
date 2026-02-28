@@ -45,6 +45,14 @@ def init_db():
         cur.execute("alter table proxies add column raw_url text")
     except sqlite3.OperationalError:
         pass
+    try:
+        cur.execute("alter table proxies add column last_check integer")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("alter table proxies add column ok integer")
+    except sqlite3.OperationalError:
+        pass
     cur.execute("""create table if not exists lists (
         id integer primary key autoincrement,
         list_type text not null,
@@ -81,6 +89,10 @@ def init_db():
         task_id integer,
         created_at integer not null
     )""")
+    try:
+        cur.execute("create unique index if not exists idx_members_added_username on members_added(username)")
+    except sqlite3.OperationalError:
+        pass
     cur.execute("""create table if not exists accounts (
         phone text primary key,
         status text,
@@ -174,13 +186,23 @@ def list_proxies() -> list[dict]:
     conn.close()
     return rows
 
+def get_proxy(row_id: int) -> dict | None:
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("select id, scheme, host, port, username, password, raw_url, enabled, last_check, ok from proxies where id=?", (row_id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
 def add_proxy(scheme: str, host: str, port: int, username: str, password: str, raw_url: str = ""):
     conn = _db()
     cur = conn.cursor()
     cur.execute("""insert into proxies(scheme, host, port, username, password, raw_url, enabled)
                    values(?,?,?,?,?,?,1)""", (scheme, host, port, username, password, raw_url))
     conn.commit()
+    row_id = cur.lastrowid
     conn.close()
+    return row_id
 
 def update_proxy(row_id: int, scheme: str, host: str, port: int, username: str, password: str, raw_url: str = ""):
     conn = _db()
@@ -347,7 +369,7 @@ def append_task_log(task_id: int, text: str):
 def get_due_task() -> Optional[dict]:
     conn = _db()
     cur = conn.cursor()
-    cur.execute("""select id, type, payload from tasks
+    cur.execute("""select id, type, payload, run_at from tasks
                    where status='queued' and run_at<=?
                    order by run_at asc, id asc limit 1""", (_now_ts(),))
     row = cur.fetchone()
@@ -380,7 +402,7 @@ def is_member_added(username: str) -> bool:
 def record_member_added(username: str, account: str, task_id: Optional[int]):
     conn = _db()
     cur = conn.cursor()
-    cur.execute("insert into members_added(username, account, task_id, created_at) values(?,?,?,?)",
+    cur.execute("insert or ignore into members_added(username, account, task_id, created_at) values(?,?,?,?)",
                 (username, account, task_id, _now_ts()))
     conn.commit()
     conn.close()
@@ -401,11 +423,12 @@ def list_reports(start: int = None, end: int = None) -> dict:
     cur.execute(f"select count(*) as c from members_added {w_clause}", tuple(params))
     added = cur.fetchone()["c"]
 
-    w_clause_task = "where " + " and ".join(where) if where else "" # tasks also use created_at or finished_at? let's use created_at
-    cur.execute(f"select count(*) as c from tasks {w_clause_task} and status='done'", tuple(params))
+    w_clause_task = "where " + " and ".join(where) if where else ""
+    status_prefix = " and " if w_clause_task else " where "
+    cur.execute(f"select count(*) as c from tasks {w_clause_task}{status_prefix}status='done'", tuple(params))
     tasks_done = cur.fetchone()["c"]
     
-    cur.execute(f"select count(*) as c from tasks {w_clause_task} and status='failed'", tuple(params))
+    cur.execute(f"select count(*) as c from tasks {w_clause_task}{status_prefix}status='failed'", tuple(params))
     tasks_failed = cur.fetchone()["c"]
     
     conn.close()

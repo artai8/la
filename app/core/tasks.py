@@ -14,7 +14,7 @@ from app.core.database import (
     get_due_task, get_task_log, delete_task, is_member_added, record_member_added,
     list_list_values, get_setting, _now_ts, list_proxies
 )
-from app.core.db_remote import insert_members
+from app.core.db_remote import insert_members, insert_chat_messages, fetch_members, fetch_chat_messages
 
 # Global keepalive control
 _keepalive_clients: list[Client] = []
@@ -109,9 +109,16 @@ async def warmup_process(phones: list[str], duration_min: int, actions: list[str
 async def extract_process(task_id: int, payload: dict):
     state.extract = True
     state.extract_running = 0
+    links = payload.get("links") or []
     link = payload.get("link")
-    # simplified extract logic
-    append_task_log(task_id, f"Starting extract from {link}")
+    if link:
+        links.append(link)
+    links = [l for l in links if str(l).strip()]
+    if not links:
+        append_task_log(task_id, "No links provided")
+        state.extract = False
+        return
+    append_task_log(task_id, f"Starting extract from {len(links)} links")
     
     # We need a client to extract
     phones = TelegramPanel.list_accounts()
@@ -129,39 +136,62 @@ async def extract_process(task_id: int, payload: dict):
     cli = cli_list[0]
     count = 0
     try:
-        chat = await cli.get_chat(link)
-        append_task_log(task_id, f"Joined/Found chat: {chat.title}")
-        
-        members = []
-        async for m in cli.get_chat_members(chat.id):
-            if m.user.is_bot or m.user.is_deleted:
-                continue
-            # Filter logic here (keywords etc)
-            u_name = m.user.username or ""
-            members.append({
-                "username": u_name,
-                "id": m.user.id,
-                "access_hash": m.user.access_hash,
-                "group_id": chat.id,
-                "group_title": chat.title
-            })
-            count += 1
-            if count % 100 == 0:
-                state.extract_running = count
-        
-        if payload.get("use_remote_db"):
-            insert_members(members)
-            append_task_log(task_id, f"Inserted {len(members)} to remote DB")
-        else:
-            # Save to file
-            os.makedirs("gaps", exist_ok=True)
-            fname = f"gaps/{chat.title}_{int(time.time())}.txt"
-            with open(fname, "w", encoding="utf-8") as f:
-                for mem in members:
-                    if mem["username"]:
-                        f.write(f"@{mem['username']}\n")
-            append_task_log(task_id, f"Saved {len(members)} to {fname}")
-            
+        include_keywords = [k.lower() for k in (payload.get("include_keywords") or []) if k]
+        exclude_keywords = [k.lower() for k in (payload.get("exclude_keywords") or []) if k]
+        exclude_admin = bool(payload.get("exclude_admin"))
+        exclude_bot = payload.get("exclude_bot")
+        if exclude_bot is None:
+            exclude_bot = True
+        save_remote = payload.get("use_remote_db")
+        if save_remote is None:
+            save_remote = True
+        all_usernames = []
+        for link in links:
+            if not state.extract:
+                break
+            chat = await cli.get_chat(link)
+            append_task_log(task_id, f"Joined/Found chat: {chat.title}")
+            members = []
+            async for m in cli.get_chat_members(chat.id):
+                if not state.extract:
+                    break
+                if m.user.is_deleted:
+                    continue
+                if exclude_bot and m.user.is_bot:
+                    continue
+                if exclude_admin and m.status in (enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER):
+                    continue
+                u_name = m.user.username or ""
+                text = f"{u_name} {m.user.first_name or ''} {m.user.last_name or ''}".lower()
+                if include_keywords and not any(k in text for k in include_keywords):
+                    continue
+                if exclude_keywords and any(k in text for k in exclude_keywords):
+                    continue
+                members.append({
+                    "username": u_name,
+                    "id": m.user.id,
+                    "access_hash": m.user.access_hash,
+                    "group_id": chat.id,
+                    "group_title": chat.title
+                })
+                if u_name:
+                    all_usernames.append(u_name)
+                count += 1
+                if count % 100 == 0:
+                    state.extract_running = count
+            if members and save_remote:
+                insert_members(members)
+                append_task_log(task_id, f"Inserted {len(members)} to remote DB")
+            if members:
+                os.makedirs("gaps", exist_ok=True)
+                fname = f"gaps/{chat.title}_{int(time.time())}.txt"
+                with open(fname, "w", encoding="utf-8") as f:
+                    for mem in members:
+                        if mem["username"]:
+                            f.write(f"@{mem['username']}\n")
+                append_task_log(task_id, f"Saved {len(members)} to {fname}")
+        if payload.get("auto_load"):
+            state.members = _normalize_usernames(all_usernames)
     except Exception as e:
         append_task_log(task_id, f"Error: {str(e)}")
         traceback.print_exc()
@@ -169,6 +199,56 @@ async def extract_process(task_id: int, payload: dict):
         await TelegramPanel._safe_disconnect(cli)
         state.extract = False
         state.extract_running = 0
+
+async def scrape_process(task_id: int, payload: dict):
+    link = payload.get("link")
+    limit = int(payload.get("limit") or 100)
+    min_length = int(payload.get("min_length") or 0)
+    keywords_blacklist = [k.lower() for k in (payload.get("keywords_blacklist") or []) if k]
+    if not link:
+        append_task_log(task_id, "No link provided")
+        return
+    phones = TelegramPanel.list_accounts()
+    if not phones:
+        append_task_log(task_id, "No accounts available for scrape")
+        return
+    cli_list = await _connect_clients(phones[:1])
+    if not cli_list:
+        append_task_log(task_id, "Failed to connect client")
+        return
+    cli = cli_list[0]
+    try:
+        chat = await cli.get_chat(link)
+        messages = []
+        async for msg in cli.get_chat_history(chat.id, limit=limit):
+            content = msg.text or msg.caption or ""
+            if not content:
+                continue
+            if min_length and len(content) < min_length:
+                continue
+            if keywords_blacklist and any(k in content.lower() for k in keywords_blacklist):
+                continue
+            sender = msg.from_user
+            messages.append({
+                "group_id": chat.id,
+                "group_title": chat.title,
+                "message_id": msg.id,
+                "sender_id": sender.id if sender else None,
+                "sender_username": sender.username if sender else "",
+                "content": content,
+                "created_at": int(msg.date.timestamp()) if msg.date else _now_ts()
+            })
+        save_remote = payload.get("save_to_remote")
+        if save_remote is None:
+            save_remote = True
+        if messages and save_remote:
+            insert_chat_messages(messages)
+            append_task_log(task_id, f"Inserted {len(messages)} messages to remote DB")
+        append_task_log(task_id, f"Scraped {len(messages)} messages")
+    except Exception as e:
+        append_task_log(task_id, f"Scrape error: {e}")
+    finally:
+        await TelegramPanel._safe_disconnect(cli)
 
 def _normalize_usernames(items: list[str]) -> list[str]:
     out = []
@@ -250,7 +330,14 @@ async def invite_process(task_id: int, payload: dict):
         append_task_log(task_id, "No target link provided")
         return
     
-    targets = _collect_usernames(group_names, use_loaded)
+    use_remote_db = bool(payload.get("use_remote_db"))
+    if use_remote_db:
+        limit = int(get_setting("max_members_limit") or 2000)
+        targets = []
+        for name in group_names:
+            targets.extend(fetch_members(group_title=name, limit=limit))
+    else:
+        targets = _collect_usernames(group_names, use_loaded)
     targets = _apply_list_filters(targets)
     if not targets:
         append_task_log(task_id, "No members to invite")
@@ -295,6 +382,7 @@ async def invite_process(task_id: int, payload: dict):
                     append_task_log(task_id, f"Invited {username}")
                     added += 1
                 except Exception as e:
+                    record_member_added(username, "", task_id)
                     append_task_log(task_id, f"Invite failed {username}: {e}")
                 await asyncio.sleep(random.uniform(1, 3))
     finally:
@@ -308,11 +396,9 @@ async def chat_process(task_id: int, payload: dict):
     min_delay = int(payload.get("min_delay") or 1)
     max_delay = int(payload.get("max_delay") or max(min_delay, 1))
     max_messages = int(payload.get("max_messages") or 1)
+    use_remote_db = bool(payload.get("use_remote_db"))
     if not link:
         append_task_log(task_id, "No target link provided")
-        return
-    if not messages:
-        append_task_log(task_id, "No messages provided")
         return
     if max_delay < min_delay:
         max_delay = min_delay
@@ -331,12 +417,22 @@ async def chat_process(task_id: int, payload: dict):
     
     state.chat_active = True
     try:
+        remote_loaded = False
         for cli in clients:
             res = await TelegramPanel.join_chat(cli, link)
             if not res.get("ok"):
                 append_task_log(task_id, f"Join chat failed: {res.get('error')}")
                 continue
             chat_id = res.get("id")
+            chat_title = res.get("title") or ""
+            if use_remote_db and not remote_loaded:
+                remote_messages = fetch_chat_messages(group_id=chat_id, group_title=chat_title, limit=max_messages * number_account)
+                if remote_messages:
+                    messages = messages + remote_messages
+                remote_loaded = True
+            if not messages:
+                append_task_log(task_id, "No messages provided")
+                return
             count = 0
             while count < max_messages:
                 msg = random.choice(messages)
@@ -406,11 +502,16 @@ async def adder_process(task_id: int, payload: dict):
         link = payload.get("link")
         number_add = int(payload.get("number_add") or 0)
         number_account = int(payload.get("number_account") or 0)
+        use_remote_db = bool(payload.get("use_remote_db"))
         if not link:
             append_task_log(task_id, "No target link provided")
             return
-        
-        targets = _normalize_usernames(state.members)
+        if use_remote_db:
+            group_name = payload.get("group_name") or ""
+            limit = int(get_setting("max_members_limit") or 2000)
+            targets = fetch_members(group_title=group_name, limit=limit)
+        else:
+            targets = _normalize_usernames(state.members)
         targets = _apply_list_filters(targets)
         if not targets:
             append_task_log(task_id, "No members to add")
@@ -456,6 +557,7 @@ async def adder_process(task_id: int, payload: dict):
                         append_task_log(task_id, f"Added {username}")
                         added += 1
                     except Exception as e:
+                        record_member_added(username, "", task_id)
                         state.bad_count += 1
                         append_task_log(task_id, f"Add failed {username}: {e}")
                     await asyncio.sleep(random.uniform(1, 3))
@@ -471,6 +573,7 @@ async def run_task(task: dict):
     task_id = task["id"]
     t_type = task["type"]
     payload = json.loads(task["payload"])
+    run_at = task.get("run_at")
     
     state.current_task_id = task_id
     state.current_task_type = t_type
@@ -491,12 +594,9 @@ async def run_task(task: dict):
         elif t_type == "dm":
             await dm_process(task_id, payload)
         elif t_type == "extract_batch":
-            # Loop over links
-            links = payload.get("links", [])
-            for link in links:
-                sub_payload = payload.copy()
-                sub_payload["link"] = link
-                await extract_process(task_id, sub_payload)
+            await extract_process(task_id, payload)
+        elif t_type == "scrape":
+            await scrape_process(task_id, payload)
         else:
             append_task_log(task_id, f"Unknown task type {t_type}")
             
@@ -505,6 +605,9 @@ async def run_task(task: dict):
         append_task_log(task_id, f"Task failed: {e}")
         update_task_status(task_id, "failed", finished_at=_now_ts())
     finally:
+        if payload.get("run_daily"):
+            next_run_at = (run_at or _now_ts()) + 86400
+            create_task(t_type, payload, next_run_at)
         state.current_task_id = None
         state.current_task_type = None
 

@@ -141,16 +141,23 @@
             <div class="panel-grid">
                 <div class="card">
                     <h3><i class="fas fa-search"></i> 采集成员</h3>
-                    <p class="hint">格式：@groupname 或 t.me/+邀请链接</p>
-                    <div class="form-group">
-                        <input type="text" id="extractLink" placeholder="@groupname">
-                        <button class="btn btn-primary" onclick="startExtract()"><i class="fas fa-play"></i> 开始</button>
-                        <button class="btn btn-warning" onclick="stopExtract()"><i class="fas fa-stop"></i> 停止</button>
-                    </div>
+                    <p class="hint">每行一个链接</p>
+                    <div class="form-row"><label>链接</label><textarea id="extractLinks" placeholder="@group1&#10;@group2"></textarea></div>
                     <div class="form-row"><label>包含关键词（逗号分隔）</label><input type="text" id="extractInclude" placeholder="crypto,airdrop"></div>
                     <div class="form-row"><label>排除关键词（逗号分隔）</label><input type="text" id="extractExclude" placeholder="bot,test"></div>
                     <div class="form-row">
+                        <label><input type="checkbox" id="extractExcludeAdmin"> 排除管理员</label>
+                        <label><input type="checkbox" id="extractExcludeBot" checked> 排除机器人</label>
+                    </div>
+                    <div class="form-row">
                         <label><input type="checkbox" id="extractAutoLoad"> 自动加载到加人</label>
+                    </div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="extractRemote" checked> 存入远程数据库</label>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="startExtract()"><i class="fas fa-play"></i> 开始</button>
+                        <button class="btn btn-warning" onclick="stopExtract()"><i class="fas fa-stop"></i> 停止</button>
                     </div>
                     <div class="stats-row">
                         <div class="stat-box"><span class="stat-label">状态</span><span class="stat-value" id="extractStatus">未运行</span></div>
@@ -158,16 +165,15 @@
                     </div>
                 </div>
                 <div class="card">
-                    <h3><i class="fas fa-layer-group"></i> 批量采集</h3>
-                    <p class="hint">每行一个链接</p>
-                    <div class="form-row"><label>链接</label><textarea id="batchExtractLinks" placeholder="@group1&#10;@group2"></textarea></div>
-                    <div class="form-row"><label>包含关键词</label><input type="text" id="batchExtractInclude" placeholder="crypto,airdrop"></div>
-                    <div class="form-row"><label>排除关键词</label><input type="text" id="batchExtractExclude" placeholder="bot,test"></div>
-                    <div class="form-row">
-                        <label><input type="checkbox" id="batchExtractAutoLoad"> 自动加载到加人</label>
-                    </div>
+                    <h3><i class="fas fa-comments"></i> 采集群聊天内容</h3>
+                    <p class="hint">每次抓取会写入数据库</p>
+                    <div class="form-row"><label>群链接</label><input type="text" id="extractChatLink" placeholder="@groupname"></div>
+                    <div class="form-row"><label>抓取数量</label><input type="number" id="extractChatLimit" value="100"></div>
+                    <div class="form-row"><label>最小字数</label><input type="number" id="extractChatMinLength" value="5"></div>
+                    <div class="form-row"><label>关键词黑名单</label><input type="text" id="extractChatBlacklist" placeholder="scam,bot"></div>
+                    <div class="form-row"><label><input type="checkbox" id="extractChatRemote" checked> 存入远程数据库</label></div>
                     <div class="form-group">
-                        <button class="btn btn-primary" onclick="startBatchExtract()"><i class="fas fa-play"></i> 批量开始</button>
+                        <button class="btn btn-primary" onclick="startExtractChat()"><i class="fas fa-play"></i> 开始抓取</button>
                     </div>
                 </div>
                 <div class="card">
@@ -201,6 +207,8 @@
 
                 <div class="card">
                     <h3><i class="fas fa-cog"></i> 加人配置</h3>
+                    <div class="form-row"><label>来源群名</label><select id="adderGroupSelect"></select></div>
+                    <div class="form-row"><label><input type="checkbox" id="adderUseRemote"> 使用远程数据库成员</label></div>
                     <div class="form-row"><label>群ID：</label><input type="text" id="adderLink" placeholder="-100123456789"></div>
                     <div class="form-row"><label>每号加人数：</label><input type="number" id="addsPerAccount" min="1" max="30" value="5"></div>
                     <div class="form-row"><label>账号数量：</label><input type="number" id="numAccounts" min="1" value="1"></div>
@@ -232,6 +240,7 @@
                     <h3><i class="fas fa-user-friends"></i> 自动拉群</h3>
                     <div class="form-row"><label>目标群ID</label><input type="text" id="inviteTarget" placeholder="-100123456789"></div>
                     <div class="form-row"><label>来源群名（每行一个）</label><textarea id="inviteGroupNames" placeholder="group1&#10;group2"></textarea></div>
+                    <div class="form-row"><label><input type="checkbox" id="inviteUseRemote"> 使用远程数据库成员</label></div>
                     <div class="form-row"><label>每号加人数</label><input type="number" id="inviteAddsPerAccount" value="5"></div>
                     <div class="form-row"><label>账号数量</label><input type="number" id="inviteNumAccounts" value="1"></div>
                     <div class="form-row">
@@ -254,6 +263,7 @@
                     <h3><i class="fas fa-comments"></i> 自动群聊</h3>
                     <div class="form-row"><label>群链接/ID</label><input type="text" id="chatLink" placeholder="@groupname"></div>
                     <div class="form-row"><label>消息（每行一条）</label><textarea id="chatMessages" placeholder="hello&#10;hi"></textarea></div>
+                    <div class="form-row"><label><input type="checkbox" id="chatUseRemote"> 使用远程数据库内容</label></div>
                     <div class="form-row"><label>最小间隔（秒）</label><input type="number" id="chatMinDelay" value="10"></div>
                     <div class="form-row"><label>最大间隔（秒）</label><input type="number" id="chatMaxDelay" value="30"></div>
                     <div class="form-row"><label>最大发送数</label><input type="number" id="chatMaxMessages" value="50"></div>
@@ -272,7 +282,6 @@
                     <div class="form-row"><label>类型</label>
                         <select id="taskType" onchange="toggleTaskType()">
                             <option value="extract">采集</option>
-                            <option value="extract_batch">批量采集</option>
                             <option value="scrape">抓取内容</option>
                             <option value="adder">加人</option>
                             <option value="invite">拉群</option>
@@ -284,29 +293,26 @@
                         </select>
                     </div>
                     <div id="taskExtractSection">
-                        <div class="form-row"><label>采集链接</label><input type="text" id="taskExtractLink" placeholder="@groupname"></div>
+                        <div class="form-row"><label>采集链接</label><textarea id="taskExtractLinks" placeholder="@group1&#10;@group2"></textarea></div>
                         <div class="form-row"><label>包含关键词</label><input type="text" id="taskExtractInclude" placeholder="crypto,airdrop"></div>
                         <div class="form-row"><label>排除关键词</label><input type="text" id="taskExtractExclude" placeholder="bot,test"></div>
+                        <div class="form-row">
+                            <label><input type="checkbox" id="taskExtractExcludeAdmin"> 排除管理员</label>
+                            <label><input type="checkbox" id="taskExtractExcludeBot" checked> 排除机器人</label>
+                        </div>
                         <div class="form-row"><label><input type="checkbox" id="taskExtractAutoLoad"> 自动加载到加人</label></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskExtractRemote"> 存入远程数据库1</label></div>
-                    </div>
-                    <div id="taskBatchExtractSection" style="display:none">
-                        <div class="form-row"><label>链接</label><textarea id="taskBatchLinks" placeholder="@group1&#10;@group2"></textarea></div>
-                        <div class="form-row"><label>包含关键词</label><input type="text" id="taskBatchInclude" placeholder="crypto,airdrop"></div>
-                        <div class="form-row"><label>排除关键词</label><input type="text" id="taskBatchExclude" placeholder="bot,test"></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskBatchAutoLoad"> 自动加载到加人</label></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskBatchRemote"> 存入远程数据库1</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskExtractRemote"> 存入远程数据库</label></div>
                     </div>
                     <div id="taskScrapeSection" style="display:none">
                         <div class="form-row"><label>群链接</label><input type="text" id="taskScrapeLink" placeholder="@groupname"></div>
                         <div class="form-row"><label>抓取数量</label><input type="number" id="taskScrapeLimit" value="100"></div>
                         <div class="form-row"><label>最小字数</label><input type="number" id="taskScrapeMinLength" value="5"></div>
                         <div class="form-row"><label>关键词黑名单</label><input type="text" id="taskScrapeBlacklist" placeholder="scam,bot"></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskScrapeRemote" checked> 存入远程数据库2</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskScrapeRemote" checked> 存入远程数据库</label></div>
                     </div>
                     <div id="taskAdderSection" style="display:none">
                         <div class="form-row"><label>群成员列表</label><select id="taskGroupSelect"></select></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskAdderRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskAdderRemote"> 使用远程数据库成员</label></div>
                         <div class="form-row"><label>群ID</label><input type="text" id="taskAdderLink" placeholder="-100123456789"></div>
                         <div class="form-row"><label>每号加人数</label><input type="number" id="taskAddsPerAccount" value="5"></div>
                         <div class="form-row"><label>账号数量</label><input type="number" id="taskNumAccounts" value="1"></div>
@@ -314,7 +320,7 @@
                     <div id="taskInviteSection" style="display:none">
                         <div class="form-row"><label>目标群ID</label><input type="text" id="taskInviteLink" placeholder="-100123456789"></div>
                         <div class="form-row"><label>来源群名（每行一个）</label><textarea id="taskInviteGroups" placeholder="group1&#10;group2"></textarea></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskInviteRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskInviteRemote"> 使用远程数据库成员</label></div>
                         <div class="form-row"><label>每号加人数</label><input type="number" id="taskInviteAddsPerAccount" value="5"></div>
                         <div class="form-row"><label>账号数量</label><input type="number" id="taskInviteNumAccounts" value="1"></div>
                     </div>
@@ -325,7 +331,7 @@
                     <div id="taskChatSection" style="display:none">
                         <div class="form-row"><label>群链接/ID</label><input type="text" id="taskChatLink" placeholder="@groupname"></div>
                         <div class="form-row"><label>消息（每行一条）</label><textarea id="taskChatMessages" placeholder="你好&#10;在吗"></textarea></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskChatRemote"> 使用远程数据库2内容</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskChatRemote"> 使用远程数据库内容</label></div>
                         <div class="form-row"><label>最小间隔</label><input type="number" id="taskChatMinDelay" value="10"></div>
                         <div class="form-row"><label>最大间隔</label><input type="number" id="taskChatMaxDelay" value="30"></div>
                         <div class="form-row"><label>最大发送数</label><input type="number" id="taskChatMaxMessages" value="50"></div>
@@ -346,7 +352,7 @@
                     <div id="taskSequenceSection" style="display:none">
                         <div class="form-row"><label>群链接/ID</label><input type="text" id="taskSequenceChatLink" placeholder="@groupname"></div>
                         <div class="form-row"><label>聊天消息（每行一条）</label><textarea id="taskSequenceMessages" placeholder="你好&#10;在吗"></textarea></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskSequenceChatRemote"> 使用远程数据库2内容</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceChatRemote"> 使用远程数据库内容</label></div>
                         <div class="form-row"><label>聊天最小间隔（秒）</label><input type="number" id="taskSequenceMinDelay" value="10"></div>
                         <div class="form-row"><label>聊天最大间隔（秒）</label><input type="number" id="taskSequenceMaxDelay" value="30"></div>
                         <div class="form-row"><label>每号发送数</label><input type="number" id="taskSequenceChatPerAccount" value="10"></div>
@@ -354,12 +360,13 @@
                         <div class="form-row"><label>拉人目标群ID</label><input type="text" id="taskSequenceAddLink" placeholder="-100123456789"></div>
                         <div class="form-row"><label>来源群名（每行一个）</label><textarea id="taskSequenceGroupNames" placeholder="group1&#10;group2"></textarea></div>
                         <div class="form-row"><label><input type="checkbox" id="taskSequenceUseLoaded" checked> 使用已加载成员列表</label></div>
-                        <div class="form-row"><label><input type="checkbox" id="taskSequenceAddRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceAddRemote"> 使用远程数据库成员</label></div>
                         <div class="form-row"><label>每号拉人次数</label><input type="number" id="taskSequenceAddsPerAccount" value="10"></div>
                         <div class="form-row"><label>账号数量</label><input type="number" id="taskSequenceNumAccounts" value="100"></div>
                         <div class="form-row"><label><input type="checkbox" id="taskSequenceKeepOnline" checked> 结束后保持账号在线</label></div>
                     </div>
                     <div class="form-row"><label>定时执行</label><input type="datetime-local" id="taskRunAt"></div>
+                    <div class="form-row"><label><input type="checkbox" id="taskRunDaily"> 每日自动运行一次</label></div>
                     <div class="form-group">
                         <button class="btn btn-success btn-lg" onclick="createTask()"><i class="fas fa-plus"></i> 创建任务</button>
                     </div>
@@ -413,20 +420,9 @@
                     </div>
 
                     <hr>
-                    <h4><i class="fas fa-database"></i> 远程数据库1 (成员)</h4>
-                    <div class="form-row"><label>Host</label><input type="text" id="settingDb1Host" placeholder="127.0.0.1"></div>
-                    <div class="form-row"><label>Port</label><input type="number" id="settingDb1Port" placeholder="3306"></div>
-                    <div class="form-row"><label>User</label><input type="text" id="settingDb1User" placeholder="root"></div>
-                    <div class="form-row"><label>Password</label><input type="password" id="settingDb1Pass"></div>
-                    <div class="form-row"><label>Database</label><input type="text" id="settingDb1Name" placeholder="telegram_db"></div>
-
-                    <hr>
-                    <h4><i class="fas fa-database"></i> 远程数据库2 (内容)</h4>
-                    <div class="form-row"><label>Host</label><input type="text" id="settingDb2Host" placeholder="127.0.0.1"></div>
-                    <div class="form-row"><label>Port</label><input type="number" id="settingDb2Port" placeholder="3306"></div>
-                    <div class="form-row"><label>User</label><input type="text" id="settingDb2User" placeholder="root"></div>
-                    <div class="form-row"><label>Password</label><input type="password" id="settingDb2Pass"></div>
-                    <div class="form-row"><label>Database</label><input type="text" id="settingDb2Name" placeholder="telegram_content"></div>
+                    <h4><i class="fas fa-database"></i> 远程数据库</h4>
+                    <div class="form-row"><label>Project URL</label><input type="text" id="settingDbUrl" placeholder="https://xxxx.supabase.co"></div>
+                    <div class="form-row"><label>Publishable Key</label><input type="password" id="settingDbKey" placeholder="eyJhbGciOi..."></div>
 
                     <button class="btn btn-success" onclick="saveSettings()"><i class="fas fa-save"></i> 保存设置</button>
                 </div>

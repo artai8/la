@@ -3,22 +3,34 @@ from app.models import SettingsRequest, ApiCredentialRequest, ApiUpdateRequest, 
 from app.core.database import (
     get_setting, set_setting, list_api_credentials, add_api_credential,
     update_api_credential, set_api_enabled, remove_api_credential, import_api_credentials,
-    list_proxies, add_proxy, update_proxy, set_proxy_enabled, remove_proxy, import_proxies
+    list_proxies, add_proxy, update_proxy, set_proxy_enabled, remove_proxy, import_proxies,
+    update_proxy_check, get_proxy
 )
+from app.core.db_remote import upsert_proxy, delete_proxy
 from app.core.auth import get_current_user
+from app.core.telegram import TelegramPanel
+from app.core.v2ray import V2RayController
 
 router = APIRouter(prefix="/api/settings")
 
 @router.get("")
 async def settings_list(user=Depends(get_current_user)):
     return {
-        "db1_host": get_setting("db1_host"),
-        "db1_port": get_setting("db1_port"),
-        "db1_user": get_setting("db1_user"),
-        "db1_pass": get_setting("db1_pass"),
-        "db1_name": get_setting("db1_name"),
-        "v2ray_path": get_setting("v2ray_path"),
-        "max_concurrent": get_setting("max_concurrent", "5")
+        "settings": {
+            "min_delay": get_setting("min_delay"),
+            "max_delay": get_setting("max_delay"),
+            "flood_wait_limit": get_setting("flood_wait_limit"),
+            "max_errors": get_setting("max_errors"),
+            "max_members_limit": get_setting("max_members_limit"),
+            "max_concurrent": get_setting("max_concurrent", "5"),
+            "chat_interval_min": get_setting("chat_interval_min"),
+            "chat_interval_max": get_setting("chat_interval_max"),
+            "chat_messages": get_setting("chat_messages"),
+            "lang": get_setting("lang"),
+            "db_url": get_setting("db_url") or get_setting("db1_url"),
+            "db_key": get_setting("db_key") or get_setting("db1_key"),
+            "v2ray_path": get_setting("v2ray_path")
+        }
     }
 
 @router.post("")
@@ -70,22 +82,77 @@ async def proxy_list(user=Depends(get_current_user)):
 
 @router.post("/proxy")
 async def proxy_add(req: ProxyRequest, user=Depends(get_current_user)):
-    add_proxy(req.scheme, req.host, req.port, req.username, req.password, req.raw_url)
-    return {"status": True}
+    if req.raw_url:
+        scheme = "socks5"
+        host = "127.0.0.1"
+        port = 1080
+        username = ""
+        password = ""
+    else:
+        scheme = req.scheme or "socks5"
+        host = req.host
+        port = req.port
+        username = req.username
+        password = req.password
+        if not host or not port:
+            return {"status": False, "message": "代理参数不完整"}
+    row_id = add_proxy(scheme, host, port, username, password, req.raw_url)
+    ok = None
+    if row_id:
+        if req.raw_url:
+            port, err = V2RayController.start(req.raw_url)
+            if err:
+                ok = False
+            else:
+                ok = await TelegramPanel.check_proxy("127.0.0.1", port, "", "")
+                V2RayController.stop(port)
+        else:
+            ok = await TelegramPanel.check_proxy(host, port, username, password)
+        if ok is not None:
+            update_proxy_check(row_id, 1 if ok else 0)
+        proxy = get_proxy(row_id)
+        if ok:
+            upsert_proxy(proxy)
+        else:
+            delete_proxy(proxy)
+    return {"status": True, "added": True, "valid": ok}
 
 @router.post("/proxy/update")
 async def proxy_update(req: ProxyUpdateRequest, user=Depends(get_current_user)):
-    update_proxy(req.id, req.scheme, req.host, req.port, req.username, req.password, req.raw_url)
+    if req.raw_url:
+        scheme = "socks5"
+        host = "127.0.0.1"
+        port = 1080
+        username = ""
+        password = ""
+    else:
+        scheme = req.scheme or "socks5"
+        host = req.host
+        port = req.port
+        username = req.username
+        password = req.password
+        if not host or not port:
+            return {"status": False, "message": "代理参数不完整"}
+    update_proxy(req.id, scheme, host, port, username, password, req.raw_url)
+    proxy = get_proxy(req.id)
+    if proxy:
+        upsert_proxy(proxy)
     return {"status": True}
 
 @router.post("/proxy/toggle")
 async def proxy_toggle(req: ProxyToggleRequest, user=Depends(get_current_user)):
     set_proxy_enabled(req.id, 1 if req.enabled else 0)
+    proxy = get_proxy(req.id)
+    if req.enabled:
+        upsert_proxy(proxy)
+    else:
+        delete_proxy(proxy)
     return {"status": True}
 
 @router.post("/proxy/remove")
 async def proxy_remove(req: ProxyToggleRequest, user=Depends(get_current_user)):
     remove_proxy(req.id)
+    delete_proxy({"id": req.id})
     return {"status": True}
 
 @router.post("/proxy/import")
@@ -119,3 +186,25 @@ async def proxy_import(req: ProxyImportRequest, user=Depends(get_current_user)):
             
     import_proxies(items)
     return {"status": True, "count": len(items)}
+
+@router.post("/proxy/test")
+async def proxy_test(req: ProxyToggleRequest, user=Depends(get_current_user)):
+    proxy = get_proxy(req.id)
+    if not proxy:
+        return {"status": False, "ok": False}
+    if proxy.get("raw_url"):
+        port, err = V2RayController.start(proxy["raw_url"])
+        if err:
+            update_proxy_check(req.id, 0)
+            return {"status": True, "ok": False}
+        ok = await TelegramPanel.check_proxy("127.0.0.1", port, "", "")
+        V2RayController.stop(port)
+    else:
+        ok = await TelegramPanel.check_proxy(proxy["host"], proxy["port"], proxy.get("username"), proxy.get("password"))
+    update_proxy_check(req.id, 1 if ok else 0)
+    proxy = get_proxy(req.id)
+    if ok:
+        upsert_proxy(proxy)
+    else:
+        delete_proxy(proxy)
+    return {"status": True, "ok": ok}

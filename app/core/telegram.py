@@ -3,12 +3,14 @@ import random
 import asyncio
 import aiohttp
 import json
+import base64
 import re
 import psutil
 from typing import Optional, Tuple
 from pyrogram import Client, errors, enums
 
 from app.core.database import list_proxies, list_api_credentials, get_setting, _db
+from app.core.db_remote import fetch_account_session
 from app.core.v2ray import V2RayController
 
 class TelegramPanel:
@@ -294,6 +296,27 @@ class TelegramPanel:
         try:
             with open(f"data/{phone}.json", "r", encoding="utf-8") as f:
                 return json.load(f)
+        except Exception:
+            pass
+        remote = fetch_account_session(phone)
+        if not remote:
+            return None
+        session_b64 = remote.get("session_b64") or ""
+        json_raw = remote.get("json_data") or ""
+        try:
+            json_data = json.loads(json_raw) if isinstance(json_raw, str) else json_raw
+        except Exception:
+            return None
+        if not session_b64 or not json_data:
+            return None
+        try:
+            os.makedirs("account", exist_ok=True)
+            os.makedirs("data", exist_ok=True)
+            with open(f"account/{phone}.session", "wb") as f:
+                f.write(base64.b64decode(session_b64.encode("utf-8")))
+            with open(f"data/{phone}.json", "w", encoding="utf-8") as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+            return json_data
         except Exception:
             return None
 
