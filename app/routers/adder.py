@@ -7,6 +7,11 @@ from app.core.auth import get_current_user
 
 router = APIRouter(prefix="/api/adder")
 
+@router.post("/start")
+async def adder_start(req: AdderRequest, user=Depends(get_current_user)):
+    task_id = create_task("adder", req.dict(), _now_ts())
+    return {"status": True, "task_id": task_id}
+
 @router.post("/join")
 async def adder_join(req: JoinRequest, user=Depends(get_current_user)):
     task_id = create_task("join", req.dict(), _now_ts())
@@ -14,7 +19,7 @@ async def adder_join(req: JoinRequest, user=Depends(get_current_user)):
 
 @router.post("/invite")
 async def adder_invite(req: InviteRequest, user=Depends(get_current_user)):
-    task_id = create_task("adder", req.dict(), _now_ts())
+    task_id = create_task("invite", req.dict(), _now_ts())
     return {"status": True, "task_id": task_id}
 
 @router.post("/chat")
