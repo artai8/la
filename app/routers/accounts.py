@@ -4,7 +4,6 @@ import re
 import time
 from fastapi import APIRouter, Depends
 from pyrogram import Client
-from pyrogram.storage import StringSession
 from app.models import PhoneRequest, CodeRequest, PasswordRequest, ProfileEditRequest, GroupAssignRequest, SessionImportRequest, SessionBatchImportRequest, AccountKeepaliveRequest, AccountWarmupRequest, AccountSpamCheckRequest
 from app.core.telegram import TelegramPanel
 from app.core.auth import get_current_user
