@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram 加人面板</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fab fa-telegram"></i> Telegram 加人面板</h1>
+            <div class="header-right">
+                <div class="connection-status" id="connStatus">
+                    <span class="dot disconnected"></span> 未连接
+                </div>
+                <div class="user-bar">
+                    <span id="userName"></span>
+                    <button class="btn btn-sm" onclick="logout()"><i class="fas fa-sign-out-alt"></i> 退出登录</button>
+                </div>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="account"><i class="fas fa-users"></i> 账号管理</button>
+            <button class="tab-btn" data-tab="extract"><i class="fas fa-download"></i> 采集</button>
+            <button class="tab-btn" data-tab="adder"><i class="fas fa-user-plus"></i> 加人</button>
+            <button class="tab-btn" data-tab="tasks"><i class="fas fa-tasks"></i> 任务</button>
+            <button class="tab-btn" data-tab="reports"><i class="fas fa-chart-line"></i> 报表</button>
+            <button class="tab-btn" data-tab="admin"><i class="fas fa-shield-alt"></i> 管理</button>
+        </nav>
+
+        <!-- ACCOUNT -->
+        <div class="tab-content active" id="tab-account">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-plus-circle"></i> 添加账号</h3>
+                    <div class="form-group">
+                        <input type="text" id="phoneInput" placeholder="+1234567890">
+                        <button class="btn btn-primary" id="sendCodeBtn" onclick="sendCode()">
+                            <i class="fas fa-paper-plane"></i> 发送验证码
+                        </button>
+                    </div>
+                    <div id="codeSection" style="display:none">
+                        <div class="form-group">
+                            <input type="text" id="codeInput" placeholder="5位验证码" maxlength="5">
+                            <button class="btn btn-success" onclick="verifyCode()"><i class="fas fa-check"></i> 验证</button>
+                            <button class="btn btn-danger" onclick="cancelLogin()"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div id="passwordSection" style="display:none">
+                        <div class="form-group">
+                            <input type="password" id="passwordInput" placeholder="二步验证密码">
+                            <button class="btn btn-success" onclick="verifyPassword()"><i class="fas fa-key"></i> 验证</button>
+                            <button class="btn btn-danger" onclick="cancelLogin()"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div id="loginStatus" class="status-msg"></div>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-trash-alt"></i> 删除账号</h3>
+                    <div class="form-group">
+                        <input type="text" id="removePhoneInput" placeholder="+1234567890">
+                        <button class="btn btn-danger" onclick="removeAccount()"><i class="fas fa-trash"></i> 删除</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-file-import"></i> 导入 Session 字符串</h3>
+                    <div class="form-row"><label>API ID</label><input type="number" id="sessionApiId" placeholder="123456"></div>
+                    <div class="form-row"><label>API Hash</label><input type="text" id="sessionApiHash" placeholder="abcdef"></div>
+                    <div class="form-row"><label>Session</label><textarea id="sessionString" placeholder="session string"></textarea></div>
+                    <div class="form-group">
+                        <button class="btn btn-success" onclick="importSession()"><i class="fas fa-check"></i> 导入</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-layer-group"></i> 批量导入 Session</h3>
+                    <p class="hint">每行：API_ID|API_HASH|SESSION</p>
+                    <div class="form-row"><label>内容</label><textarea id="sessionBatchLines" placeholder="123|hash|session"></textarea></div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="importSessionBatch()"><i class="fas fa-play"></i> 开始导入</button>
+                    </div>
+                    <div class="list-container" id="sessionBatchResult"></div>
+                </div>
+
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-list"></i> 账号列表</h3>
+                        <div class="badge" id="accountCount">0</div>
+                        <button class="btn btn-sm" onclick="refreshAccounts()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div class="form-row">
+                        <label>批量分组：</label>
+                        <input type="text" id="batchGroupName" placeholder="新分组名">
+                        <button class="btn btn-primary btn-sm" onclick="batchSetGroup()">设置分组</button>
+                    </div>
+                    <div class="form-row">
+                        <button class="btn btn-warning btn-sm" onclick="showProfileEdit()">批量修改资料</button>
+                    </div>
+                    <div id="profileEditForm" style="display:none; border:1px solid #ccc; padding:10px; margin-top:10px;">
+                        <h4>批量资料修改</h4>
+                        <div class="form-row"><label>名</label><input type="text" id="editFirstName"></div>
+                        <div class="form-row"><label>姓</label><input type="text" id="editLastName"></div>
+                        <div class="form-row"><label>简介</label><input type="text" id="editAbout"></div>
+                        <div class="form-row"><label>用户名</label><input type="text" id="editUsername" placeholder="谨慎修改"></div>
+                        <button class="btn btn-success" onclick="batchUpdateProfile()">更新所选</button>
+                        <button class="btn btn-danger" onclick="hideProfileEdit()">取消</button>
+                    </div>
+                    <div class="form-row"><label>养号时长（分钟）</label><input type="number" id="warmupDuration" value="10"></div>
+                    <div class="form-row"><label>养号动作</label><input type="text" id="warmupActions" value="read,scroll"></div>
+                    <div class="form-row">
+                        <button class="btn btn-success btn-sm" onclick="startWarmup()">养号</button>
+                        <button class="btn btn-primary btn-sm" onclick="startKeepalive()">批量在线</button>
+                        <button class="btn btn-danger btn-sm" onclick="stopKeepalive()">批量下线</button>
+                        <button class="btn btn-warning btn-sm" onclick="checkSpamRestriction()">检测双向限制</button>
+                    </div>
+                    <div class="list-container" id="accountList"></div>
+                </div>
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-heartbeat"></i> 账号健康</h3>
+                        <button class="btn btn-sm" onclick="checkAccountHealth()"><i class="fas fa-stethoscope"></i></button>
+                    </div>
+                    <div class="list-container" id="accountHealthList"></div>
+                </div>
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-shield-alt"></i> 双向限制检测</h3>
+                    </div>
+                    <div class="list-container" id="accountRestrictionList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EXTRACT -->
+        <div class="tab-content" id="tab-extract">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-search"></i> 采集成员</h3>
+                    <p class="hint">格式：@groupname 或 t.me/+邀请链接</p>
+                    <div class="form-group">
+                        <input type="text" id="extractLink" placeholder="@groupname">
+                        <button class="btn btn-primary" onclick="startExtract()"><i class="fas fa-play"></i> 开始</button>
+                        <button class="btn btn-warning" onclick="stopExtract()"><i class="fas fa-stop"></i> 停止</button>
+                    </div>
+                    <div class="form-row"><label>包含关键词（逗号分隔）</label><input type="text" id="extractInclude" placeholder="crypto,airdrop"></div>
+                    <div class="form-row"><label>排除关键词（逗号分隔）</label><input type="text" id="extractExclude" placeholder="bot,test"></div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="extractAutoLoad"> 自动加载到加人</label>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-box"><span class="stat-label">状态</span><span class="stat-value" id="extractStatus">未运行</span></div>
+                        <div class="stat-box"><span class="stat-label">已采集</span><span class="stat-value" id="extractCount">0</span></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-layer-group"></i> 批量采集</h3>
+                    <p class="hint">每行一个链接</p>
+                    <div class="form-row"><label>链接</label><textarea id="batchExtractLinks" placeholder="@group1&#10;@group2"></textarea></div>
+                    <div class="form-row"><label>包含关键词</label><input type="text" id="batchExtractInclude" placeholder="crypto,airdrop"></div>
+                    <div class="form-row"><label>排除关键词</label><input type="text" id="batchExtractExclude" placeholder="bot,test"></div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="batchExtractAutoLoad"> 自动加载到加人</label>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="startBatchExtract()"><i class="fas fa-play"></i> 批量开始</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-folder-open"></i> 已保存群</h3>
+                    <div class="form-group">
+                        <select id="groupSelect"></select>
+                        <button class="btn btn-danger" onclick="removeGroup()"><i class="fas fa-trash"></i></button>
+                        <button class="btn btn-sm" onclick="refreshGroups()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                </div>
+                <div class="card card-wide">
+                    <h3><i class="fas fa-terminal"></i> 日志</h3>
+                    <div class="log-box" id="extractLog"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADDER -->
+        <div class="tab-content" id="tab-adder">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-file-import"></i> 加载成员</h3>
+                    <div class="form-group">
+                        <select id="loadGroupSelect"></select>
+                        <button class="btn btn-primary" onclick="loadMembers()"><i class="fas fa-upload"></i> 加载</button>
+                        <button class="btn btn-warning" onclick="clearMembers()"><i class="fas fa-eraser"></i> 清空</button>
+                        <button class="btn btn-sm" onclick="refreshLoadGroups()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div class="stat-box"><span class="stat-label">已加载</span><span class="stat-value" id="loadedCount">0</span></div>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-cog"></i> 加人配置</h3>
+                    <div class="form-row"><label>群ID：</label><input type="text" id="adderLink" placeholder="-100123456789"></div>
+                    <div class="form-row"><label>每号加人数：</label><input type="number" id="addsPerAccount" min="1" max="30" value="5"></div>
+                    <div class="form-row"><label>账号数量：</label><input type="number" id="numAccounts" min="1" value="1"></div>
+                    <div class="form-group">
+                        <button class="btn btn-success btn-lg" onclick="startAdder()"><i class="fas fa-rocket"></i> 开始</button>
+                        <button class="btn btn-danger btn-lg" onclick="stopAdder()"><i class="fas fa-ban"></i> 停止</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-chart-bar"></i> 统计</h3>
+                    <div class="stats-grid">
+                        <div class="stat-box success"><span class="stat-label">成功</span><span class="stat-value big" id="okCount">0</span></div>
+                        <div class="stat-box danger"><span class="stat-label">失败</span><span class="stat-value big" id="badCount">0</span></div>
+                        <div class="stat-box info"><span class="stat-label">运行中</span><span class="stat-value big" id="runCount">0</span></div>
+                        <div class="stat-box neutral"><span class="stat-label">完成</span><span class="stat-value big" id="finalCount">0</span></div>
+                    </div>
+                    <div class="stat-box"><span class="stat-label">状态</span><span class="stat-value" id="adderStatus">未运行</span></div>
+                </div>
+
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-terminal"></i> 日志</h3>
+                        <button class="btn btn-sm" onclick="saveLog()"><i class="fas fa-save"></i> 保存</button>
+                    </div>
+                    <div class="log-box" id="adderLog"></div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-user-friends"></i> 自动拉群</h3>
+                    <div class="form-row"><label>目标群ID</label><input type="text" id="inviteTarget" placeholder="-100123456789"></div>
+                    <div class="form-row"><label>来源群名（每行一个）</label><textarea id="inviteGroupNames" placeholder="group1&#10;group2"></textarea></div>
+                    <div class="form-row"><label>每号加人数</label><input type="number" id="inviteAddsPerAccount" value="5"></div>
+                    <div class="form-row"><label>账号数量</label><input type="number" id="inviteNumAccounts" value="1"></div>
+                    <div class="form-row">
+                        <label><input type="checkbox" id="inviteUseLoaded" checked> 使用已加载列表</label>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-success" onclick="startInvite()"><i class="fas fa-rocket"></i> 开始</button>
+                        <button class="btn btn-danger" onclick="stopAdder()"><i class="fas fa-ban"></i> 停止</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-sign-in-alt"></i> 自动加群</h3>
+                    <div class="form-row"><label>群链接（每行一个）</label><textarea id="joinLinks" placeholder="@group1&#10;@group2"></textarea></div>
+                    <div class="form-row"><label>账号数量</label><input type="number" id="joinNumAccounts" value="1"></div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="startJoin()"><i class="fas fa-play"></i> 开始</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-comments"></i> 自动群聊</h3>
+                    <div class="form-row"><label>群链接/ID</label><input type="text" id="chatLink" placeholder="@groupname"></div>
+                    <div class="form-row"><label>消息（每行一条）</label><textarea id="chatMessages" placeholder="hello&#10;hi"></textarea></div>
+                    <div class="form-row"><label>最小间隔（秒）</label><input type="number" id="chatMinDelay" value="10"></div>
+                    <div class="form-row"><label>最大间隔（秒）</label><input type="number" id="chatMaxDelay" value="30"></div>
+                    <div class="form-row"><label>最大发送数</label><input type="number" id="chatMaxMessages" value="50"></div>
+                    <div class="form-row"><label>账号数量</label><input type="number" id="chatNumAccounts" value="1"></div>
+                    <div class="form-group">
+                        <button class="btn btn-success" onclick="startChat()"><i class="fas fa-play"></i> 开始</button>
+                        <button class="btn btn-danger" onclick="stopChat()"><i class="fas fa-stop"></i> 停止</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-tasks">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-tasks"></i> 任务创建</h3>
+                    <div class="form-row"><label>类型</label>
+                        <select id="taskType" onchange="toggleTaskType()">
+                            <option value="extract">采集</option>
+                            <option value="extract_batch">批量采集</option>
+                            <option value="scrape">抓取内容</option>
+                            <option value="adder">加人</option>
+                            <option value="invite">拉群</option>
+                            <option value="join">加群</option>
+                            <option value="chat">群聊</option>
+                            <option value="dm">私信</option>
+                            <option value="warmup">养号</option>
+                            <option value="sequence">顺序随机群聊+拉人</option>
+                        </select>
+                    </div>
+                    <div id="taskExtractSection">
+                        <div class="form-row"><label>采集链接</label><input type="text" id="taskExtractLink" placeholder="@groupname"></div>
+                        <div class="form-row"><label>包含关键词</label><input type="text" id="taskExtractInclude" placeholder="crypto,airdrop"></div>
+                        <div class="form-row"><label>排除关键词</label><input type="text" id="taskExtractExclude" placeholder="bot,test"></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskExtractAutoLoad"> 自动加载到加人</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskExtractRemote"> 存入远程数据库1</label></div>
+                    </div>
+                    <div id="taskBatchExtractSection" style="display:none">
+                        <div class="form-row"><label>链接</label><textarea id="taskBatchLinks" placeholder="@group1&#10;@group2"></textarea></div>
+                        <div class="form-row"><label>包含关键词</label><input type="text" id="taskBatchInclude" placeholder="crypto,airdrop"></div>
+                        <div class="form-row"><label>排除关键词</label><input type="text" id="taskBatchExclude" placeholder="bot,test"></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskBatchAutoLoad"> 自动加载到加人</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskBatchRemote"> 存入远程数据库1</label></div>
+                    </div>
+                    <div id="taskScrapeSection" style="display:none">
+                        <div class="form-row"><label>群链接</label><input type="text" id="taskScrapeLink" placeholder="@groupname"></div>
+                        <div class="form-row"><label>抓取数量</label><input type="number" id="taskScrapeLimit" value="100"></div>
+                        <div class="form-row"><label>最小字数</label><input type="number" id="taskScrapeMinLength" value="5"></div>
+                        <div class="form-row"><label>关键词黑名单</label><input type="text" id="taskScrapeBlacklist" placeholder="scam,bot"></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskScrapeRemote" checked> 存入远程数据库2</label></div>
+                    </div>
+                    <div id="taskAdderSection" style="display:none">
+                        <div class="form-row"><label>群成员列表</label><select id="taskGroupSelect"></select></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskAdderRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label>群ID</label><input type="text" id="taskAdderLink" placeholder="-100123456789"></div>
+                        <div class="form-row"><label>每号加人数</label><input type="number" id="taskAddsPerAccount" value="5"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskInviteSection" style="display:none">
+                        <div class="form-row"><label>目标群ID</label><input type="text" id="taskInviteLink" placeholder="-100123456789"></div>
+                        <div class="form-row"><label>来源群名（每行一个）</label><textarea id="taskInviteGroups" placeholder="group1&#10;group2"></textarea></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskInviteRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label>每号加人数</label><input type="number" id="taskInviteAddsPerAccount" value="5"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskInviteNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskJoinSection" style="display:none">
+                        <div class="form-row"><label>群链接</label><textarea id="taskJoinLinks" placeholder="@group1&#10;@group2"></textarea></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskJoinNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskChatSection" style="display:none">
+                        <div class="form-row"><label>群链接/ID</label><input type="text" id="taskChatLink" placeholder="@groupname"></div>
+                        <div class="form-row"><label>消息（每行一条）</label><textarea id="taskChatMessages" placeholder="你好&#10;在吗"></textarea></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskChatRemote"> 使用远程数据库2内容</label></div>
+                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskChatMinDelay" value="10"></div>
+                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskChatMaxDelay" value="30"></div>
+                        <div class="form-row"><label>最大发送数</label><input type="number" id="taskChatMaxMessages" value="50"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskChatNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskDMSection" style="display:none">
+                        <div class="form-row"><label>目标群（已保存）</label><select id="taskDMGroupSelect"></select></div>
+                        <div class="form-row"><label>消息</label><textarea id="taskDMMessages" placeholder="你好&#10;在吗"></textarea></div>
+                        <div class="form-row"><label>最小间隔</label><input type="number" id="taskDMMinDelay" value="10"></div>
+                        <div class="form-row"><label>最大间隔</label><input type="number" id="taskDMMaxDelay" value="30"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskDMNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskWarmupSection" style="display:none">
+                        <div class="form-row"><label>时长（分钟）</label><input type="number" id="taskWarmupDuration" value="10"></div>
+                        <div class="form-row"><label>行为</label><input type="text" id="taskWarmupActions" placeholder="read,scroll" value="read,scroll"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskWarmupNumAccounts" value="1"></div>
+                    </div>
+                    <div id="taskSequenceSection" style="display:none">
+                        <div class="form-row"><label>群链接/ID</label><input type="text" id="taskSequenceChatLink" placeholder="@groupname"></div>
+                        <div class="form-row"><label>聊天消息（每行一条）</label><textarea id="taskSequenceMessages" placeholder="你好&#10;在吗"></textarea></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceChatRemote"> 使用远程数据库2内容</label></div>
+                        <div class="form-row"><label>聊天最小间隔（秒）</label><input type="number" id="taskSequenceMinDelay" value="10"></div>
+                        <div class="form-row"><label>聊天最大间隔（秒）</label><input type="number" id="taskSequenceMaxDelay" value="30"></div>
+                        <div class="form-row"><label>每号发送数</label><input type="number" id="taskSequenceChatPerAccount" value="10"></div>
+                        <div class="form-row"><label>随机并发最小/最大</label><input type="number" id="taskSequencePickMin" value="1"><input type="number" id="taskSequencePickMax" value="3"></div>
+                        <div class="form-row"><label>拉人目标群ID</label><input type="text" id="taskSequenceAddLink" placeholder="-100123456789"></div>
+                        <div class="form-row"><label>来源群名（每行一个）</label><textarea id="taskSequenceGroupNames" placeholder="group1&#10;group2"></textarea></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceUseLoaded" checked> 使用已加载成员列表</label></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceAddRemote"> 使用远程数据库1成员</label></div>
+                        <div class="form-row"><label>每号拉人次数</label><input type="number" id="taskSequenceAddsPerAccount" value="10"></div>
+                        <div class="form-row"><label>账号数量</label><input type="number" id="taskSequenceNumAccounts" value="100"></div>
+                        <div class="form-row"><label><input type="checkbox" id="taskSequenceKeepOnline" checked> 结束后保持账号在线</label></div>
+                    </div>
+                    <div class="form-row"><label>定时执行</label><input type="datetime-local" id="taskRunAt"></div>
+                    <div class="form-group">
+                        <button class="btn btn-success btn-lg" onclick="createTask()"><i class="fas fa-plus"></i> 创建任务</button>
+                    </div>
+                </div>
+                <div class="card card-wide">
+                    <div class="card-header">
+                        <h3><i class="fas fa-list"></i> 任务列表</h3>
+                        <div class="badge" id="currentTaskInfo">空闲</div>
+                        <button class="btn btn-sm" onclick="refreshTasks()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div class="list-container" id="taskList"></div>
+                </div>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-reports">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-chart-line"></i> 汇总</h3>
+                    <div class="form-row"><label>开始时间</label><input type="datetime-local" id="reportStart"></div>
+                    <div class="form-row"><label>结束时间</label><input type="datetime-local" id="reportEnd"></div>
+                    <div class="stats-grid">
+                        <div class="stat-box success"><span class="stat-label">已添加</span><span class="stat-value big" id="reportAdded">0</span></div>
+                        <div class="stat-box info"><span class="stat-label">任务成功</span><span class="stat-value big" id="reportTasksDone">0</span></div>
+                        <div class="stat-box danger"><span class="stat-label">任务失败</span><span class="stat-value big" id="reportTasksFailed">0</span></div>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="refreshReports()"><i class="fas fa-sync-alt"></i> 刷新</button>
+                        <button class="btn btn-primary" onclick="exportReports()"><i class="fas fa-file-export"></i> 导出CSV</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-admin">
+            <div class="panel-grid">
+                <div class="card">
+                    <h3><i class="fas fa-cog"></i> 系统设置</h3>
+                    <div class="form-row"><label>最小间隔（秒）<span class="help-icon" title="每次操作之间的最小等待时间">?</span></label><input type="number" id="settingMinDelay"></div>
+                    <div class="form-row"><label>最大间隔（秒）<span class="help-icon" title="每次操作之间的最大等待时间">?</span></label><input type="number" id="settingMaxDelay"></div>
+                    <div class="form-row"><label>Flood限制（秒）<span class="help-icon" title="遇到FloodWait时的等待阈值，超过则暂停">?</span></label><input type="number" id="settingFloodLimit"></div>
+                    <div class="form-row"><label>最大错误数<span class="help-icon" title="允许连续出错次数，超出会停止任务">?</span></label><input type="number" id="settingMaxErrors"></div>
+                    <div class="form-row"><label>最大成员数<span class="help-icon" title="单次任务最多处理的成员数量">?</span></label><input type="number" id="settingMaxMembers"></div>
+                    <div class="form-row"><label>最大并发账号数<span class="help-icon" title="0为自动计算，设置更高可能导致资源占用增加">?</span></label><input type="number" id="settingMaxConcurrent"></div>
+                    <div class="form-row"><label>群聊最小间隔（秒）<span class="help-icon" title="自动群聊最小等待时间">?</span></label><input type="number" id="settingChatMin"></div>
+                    <div class="form-row"><label>群聊最大间隔（秒）<span class="help-icon" title="自动群聊最大等待时间">?</span></label><input type="number" id="settingChatMax"></div>
+                    <div class="form-row"><label>群聊话术<span class="help-icon" title="群聊消息内容，每行一条">?</span></label><textarea id="settingChatMessages" placeholder="你好&#10;在吗"></textarea></div>
+                    <div class="form-row"><label>界面语言<span class="help-icon" title="Web界面显示语言">?</span></label>
+                        <select id="settingLang">
+                            <option value="zh">中文</option>
+                            <option value="en">英文</option>
+                        </select>
+                    </div>
+
+                    <hr>
+                    <h4><i class="fas fa-database"></i> 远程数据库1 (成员)</h4>
+                    <div class="form-row"><label>Host</label><input type="text" id="settingDb1Host" placeholder="127.0.0.1"></div>
+                    <div class="form-row"><label>Port</label><input type="number" id="settingDb1Port" placeholder="3306"></div>
+                    <div class="form-row"><label>User</label><input type="text" id="settingDb1User" placeholder="root"></div>
+                    <div class="form-row"><label>Password</label><input type="password" id="settingDb1Pass"></div>
+                    <div class="form-row"><label>Database</label><input type="text" id="settingDb1Name" placeholder="telegram_db"></div>
+
+                    <hr>
+                    <h4><i class="fas fa-database"></i> 远程数据库2 (内容)</h4>
+                    <div class="form-row"><label>Host</label><input type="text" id="settingDb2Host" placeholder="127.0.0.1"></div>
+                    <div class="form-row"><label>Port</label><input type="number" id="settingDb2Port" placeholder="3306"></div>
+                    <div class="form-row"><label>User</label><input type="text" id="settingDb2User" placeholder="root"></div>
+                    <div class="form-row"><label>Password</label><input type="password" id="settingDb2Pass"></div>
+                    <div class="form-row"><label>Database</label><input type="text" id="settingDb2Name" placeholder="telegram_content"></div>
+
+                    <button class="btn btn-success" onclick="saveSettings()"><i class="fas fa-save"></i> 保存设置</button>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-key"></i> API 配置</h3>
+                    <div class="form-group">
+                        <input type="number" id="apiIdInput" placeholder="API ID">
+                        <input type="text" id="apiHashInput" placeholder="API Hash">
+                        <button class="btn btn-primary" onclick="addApi()"><i class="fas fa-plus"></i> 添加</button>
+                        <button class="btn btn-warning" onclick="updateApi()"><i class="fas fa-pen"></i> 更新</button>
+                    </div>
+                    <div class="form-row"><label>批量导入（api_id:api_hash 每行一条）</label><textarea id="apiImportInput" placeholder="123:hash"></textarea></div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="importApis()"><i class="fas fa-file-import"></i> 导入</button>
+                    </div>
+                    <div class="list-container" id="apiList"></div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-shield-alt"></i> 代理</h3>
+                    <p class="hint">仅支持 vmess/vless/trojan 链接</p>
+                    <div class="form-group">
+                        <input type="text" id="proxyRawUrl" placeholder="vmess://... or vless://...">
+                        <button class="btn btn-primary" onclick="addProxy()"><i class="fas fa-plus"></i> 添加</button>
+                    </div>
+                    <div class="form-row"><label>批量导入（vmess/vless:// 每行一条）</label><textarea id="proxyImportInput" placeholder="vmess://...&#10;vless://..."></textarea></div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="importProxies()"><i class="fas fa-file-import"></i> 导入</button>
+                    </div>
+                    <div class="list-container" id="proxyList"></div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-ban"></i> 黑名单</h3>
+                    <div class="form-group">
+                        <input type="text" id="blacklistInput" placeholder="@username">
+                        <button class="btn btn-danger" onclick="addBlacklist()"><i class="fas fa-plus"></i> 添加</button>
+                    </div>
+                    <div class="list-container" id="blacklistList"></div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-check-circle"></i> 白名单</h3>
+                    <div class="form-group">
+                        <input type="text" id="whitelistInput" placeholder="@username">
+                        <button class="btn btn-success" onclick="addWhitelist()"><i class="fas fa-plus"></i> 添加</button>
+                    </div>
+                    <div class="list-container" id="whitelistList"></div>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-user-shield"></i> 用户管理</h3>
+                    <div class="form-group">
+                        <input type="text" id="newUsername" placeholder="用户名">
+                        <input type="password" id="newPassword" placeholder="密码">
+                        <select id="newRole">
+                            <option value="admin">管理员</option>
+                            <option value="operator">操作员</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="addUser()"><i class="fas fa-user-plus"></i> 添加</button>
+                    </div>
+                    <div class="list-container" id="userList"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-server"></i> 工作进程</h3>
+                        <button class="btn btn-sm" onclick="refreshWorkers()"><i class="fas fa-sync-alt"></i></button>
+                    </div>
+                    <div class="list-container" id="workerList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

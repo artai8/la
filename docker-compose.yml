@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  telegram-adder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-adder
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # 持久化数据（重要！账号session不能丢失）
+      - ./account:/app/account
+      - ./data:/app/data
+      - ./gaps:/app/gaps
+      - ./delete:/app/delete
+      - ./downloads:/app/downloads
+
+      # 配置文件（方便修改）
+      - ./api.txt:/app/api.txt
+      - ./proxy.txt:/app/proxy.txt
+
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      # - PYTHONUNBUFFERED=1  # 实时日志输出
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # 日志配置
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 网络
+    networks:
+      - adder-net
+
+networks:
+  adder-net:
+    driver: bridge

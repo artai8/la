@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram 加人面板 - 登录</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fab fa-telegram"></i> Telegram 加人面板</h1>
+        </header>
+        <div class="panel-grid">
+            <div class="card card-wide">
+                <h3><i class="fas fa-sign-in-alt"></i> 登录</h3>
+                <div class="form-row"><label>用户名</label><input type="text" id="loginUser"></div>
+                <div class="form-row"><label>密码</label><input type="password" id="loginPass"></div>
+                <div class="form-group">
+                    <button class="btn btn-success" onclick="login()"><i class="fas fa-sign-in-alt"></i> 登录</button>
+                </div>
+                <div id="loginStatus" class="status-msg"></div>
+            </div>
+            <div class="card card-wide" id="bootstrapCard" style="display:none">
+                <h3><i class="fas fa-user-shield"></i> 初始化管理员</h3>
+                <div class="form-row"><label>管理员用户名</label><input type="text" id="bootstrapUser"></div>
+                <div class="form-row"><label>管理员密码</label><input type="password" id="bootstrapPass"></div>
+                <div class="form-group">
+                    <button class="btn btn-primary" onclick="bootstrapAdmin()"><i class="fas fa-user-plus"></i> 创建管理员</button>
+                </div>
+                <div id="bootstrapStatus" class="status-msg"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function api(url, method = 'GET', body = null) {
+            const opts = { method, headers: { 'Content-Type': 'application/json' } };
+            if (body) opts.body = JSON.stringify(body);
+            const r = await fetch(url, opts);
+            return await r.json();
+        }
+        function setStatus(id, msg, type) {
+            const el = document.getElementById(id);
+            el.textContent = msg;
+            el.className = `status-msg ${type}`;
+        }
+        async function init() {
+            const d = await api('/api/auth/status');
+            if (!d.has_users) document.getElementById('bootstrapCard').style.display = 'block';
+        }
+        async function login() {
+            const username = document.getElementById('loginUser').value.trim();
+            const password = document.getElementById('loginPass').value;
+            if (!username || !password) return setStatus('loginStatus', '请输入用户名和密码', 'error');
+            const d = await api('/api/auth/login', 'POST', { username, password });
+            if (d.status) {
+                location.href = '/';
+            } else {
+                setStatus('loginStatus', d.message || '登录失败', 'error');
+            }
+        }
+        async function bootstrapAdmin() {
+            const username = document.getElementById('bootstrapUser').value.trim();
+            const password = document.getElementById('bootstrapPass').value;
+            if (!username || !password) return setStatus('bootstrapStatus', '请输入管理员账号和密码', 'error');
+            const d = await api('/api/auth/bootstrap', 'POST', { username, password });
+            if (d.status) {
+                setStatus('bootstrapStatus', '管理员已创建，请登录', 'success');
+            } else {
+                setStatus('bootstrapStatus', d.message || '创建失败', 'error');
+            }
+        }
+        init();
+    </script>
+</body>
+</html>
