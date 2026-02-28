@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import time
 import json
@@ -169,15 +170,302 @@ async def extract_process(task_id: int, payload: dict):
         state.extract = False
         state.extract_running = 0
 
+def _normalize_usernames(items: list[str]) -> list[str]:
+    out = []
+    seen = set()
+    for it in items:
+        if not it:
+            continue
+        name = str(it).strip()
+        if name.startswith("@"):
+            name = name[1:]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
+
+def _collect_usernames(group_names: list[str], use_loaded: bool) -> list[str]:
+    items = []
+    if use_loaded and state.members:
+        items.extend(state.members)
+    for g in group_names:
+        items.extend(TelegramPanel.load_group(g))
+    return _normalize_usernames(items)
+
+def _apply_list_filters(usernames: list[str]) -> list[str]:
+    blacklist = set(_normalize_usernames(list_list_values("blacklist")))
+    whitelist = set(_normalize_usernames(list_list_values("whitelist")))
+    if not blacklist and not whitelist:
+        return usernames
+    out = []
+    for name in usernames:
+        if name in blacklist:
+            continue
+        if whitelist and name not in whitelist:
+            continue
+        out.append(name)
+    return out
+
+async def join_process(task_id: int, payload: dict):
+    links = payload.get("links") or []
+    number_account = int(payload.get("number_account") or 0)
+    links = [l for l in links if str(l).strip()]
+    if not links:
+        append_task_log(task_id, "No links provided")
+        return
+    
+    phones = TelegramPanel.list_accounts()
+    if number_account > 0:
+        phones = phones[:number_account]
+    if not phones:
+        append_task_log(task_id, "No accounts available for join")
+        return
+    
+    clients = await _connect_clients(phones)
+    if not clients:
+        append_task_log(task_id, "Failed to connect any account")
+        return
+    
+    try:
+        for link in links:
+            for cli in clients:
+                res = await TelegramPanel.join_chat(cli, link)
+                if res.get("ok"):
+                    append_task_log(task_id, f"Joined {res.get('title') or ''} {res.get('link')}")
+                else:
+                    append_task_log(task_id, f"Join failed {link}: {res.get('error')}")
+                await asyncio.sleep(random.uniform(1, 3))
+    finally:
+        for cli in clients:
+            await TelegramPanel._safe_disconnect(cli)
+
+async def invite_process(task_id: int, payload: dict):
+    link = payload.get("link")
+    group_names = payload.get("group_names") or []
+    number_add = int(payload.get("number_add") or 0)
+    number_account = int(payload.get("number_account") or 0)
+    use_loaded = bool(payload.get("use_loaded"))
+    if not link:
+        append_task_log(task_id, "No target link provided")
+        return
+    
+    targets = _collect_usernames(group_names, use_loaded)
+    targets = _apply_list_filters(targets)
+    if not targets:
+        append_task_log(task_id, "No members to invite")
+        return
+    if number_add <= 0:
+        number_add = len(targets)
+    
+    phones = TelegramPanel.list_accounts()
+    if number_account > 0:
+        phones = phones[:number_account]
+    if not phones:
+        append_task_log(task_id, "No accounts available for invite")
+        return
+    
+    clients = await _connect_clients(phones)
+    if not clients:
+        append_task_log(task_id, "Failed to connect any account")
+        return
+    
+    try:
+        chat_id = None
+        for cli in clients:
+            res = await TelegramPanel.join_chat(cli, link)
+            if res.get("ok"):
+                chat_id = res.get("id")
+                break
+        if not chat_id:
+            append_task_log(task_id, "Failed to resolve target chat")
+            return
+        
+        target_queue = list(targets)
+        random.shuffle(target_queue)
+        for cli in clients:
+            added = 0
+            while target_queue and added < number_add:
+                username = target_queue.pop(0)
+                if is_member_added(username):
+                    continue
+                try:
+                    await cli.add_chat_members(chat_id, username)
+                    record_member_added(username, "", task_id)
+                    append_task_log(task_id, f"Invited {username}")
+                    added += 1
+                except Exception as e:
+                    append_task_log(task_id, f"Invite failed {username}: {e}")
+                await asyncio.sleep(random.uniform(1, 3))
+    finally:
+        for cli in clients:
+            await TelegramPanel._safe_disconnect(cli)
+
+async def chat_process(task_id: int, payload: dict):
+    link = payload.get("link")
+    messages = payload.get("messages") or []
+    number_account = int(payload.get("number_account") or 1)
+    min_delay = int(payload.get("min_delay") or 1)
+    max_delay = int(payload.get("max_delay") or max(min_delay, 1))
+    max_messages = int(payload.get("max_messages") or 1)
+    if not link:
+        append_task_log(task_id, "No target link provided")
+        return
+    if not messages:
+        append_task_log(task_id, "No messages provided")
+        return
+    if max_delay < min_delay:
+        max_delay = min_delay
+    
+    phones = TelegramPanel.list_accounts()
+    if number_account > 0:
+        phones = phones[:number_account]
+    if not phones:
+        append_task_log(task_id, "No accounts available for chat")
+        return
+    
+    clients = await _connect_clients(phones)
+    if not clients:
+        append_task_log(task_id, "Failed to connect any account")
+        return
+    
+    state.chat_active = True
+    try:
+        for cli in clients:
+            res = await TelegramPanel.join_chat(cli, link)
+            if not res.get("ok"):
+                append_task_log(task_id, f"Join chat failed: {res.get('error')}")
+                continue
+            chat_id = res.get("id")
+            count = 0
+            while count < max_messages:
+                msg = random.choice(messages)
+                try:
+                    await cli.send_message(chat_id, msg)
+                    append_task_log(task_id, f"Sent message {count + 1}")
+                except Exception as e:
+                    append_task_log(task_id, f"Send failed: {e}")
+                count += 1
+                await asyncio.sleep(random.uniform(min_delay, max_delay))
+    finally:
+        state.chat_active = False
+        for cli in clients:
+            await TelegramPanel._safe_disconnect(cli)
+
+async def dm_process(task_id: int, payload: dict):
+    group_name = payload.get("group_name") or ""
+    messages = payload.get("messages") or []
+    number_account = int(payload.get("number_account") or 1)
+    min_delay = int(payload.get("min_delay") or 1)
+    max_delay = int(payload.get("max_delay") or max(min_delay, 1))
+    use_loaded = bool(payload.get("use_loaded"))
+    if not messages:
+        append_task_log(task_id, "No messages provided")
+        return
+    if max_delay < min_delay:
+        max_delay = min_delay
+    
+    targets = _collect_usernames([group_name] if group_name else [], use_loaded)
+    if not targets:
+        append_task_log(task_id, "No members to message")
+        return
+    
+    phones = TelegramPanel.list_accounts()
+    if number_account > 0:
+        phones = phones[:number_account]
+    if not phones:
+        append_task_log(task_id, "No accounts available for DM")
+        return
+    
+    clients = await _connect_clients(phones)
+    if not clients:
+        append_task_log(task_id, "Failed to connect any account")
+        return
+    
+    try:
+        target_queue = list(targets)
+        random.shuffle(target_queue)
+        for cli in clients:
+            while target_queue:
+                username = target_queue.pop(0)
+                msg = random.choice(messages)
+                res = await TelegramPanel.send_dm(cli, username, msg)
+                if res.get("ok"):
+                    append_task_log(task_id, f"DM sent to {username}")
+                else:
+                    append_task_log(task_id, f"DM failed {username}: {res.get('error')}")
+                await asyncio.sleep(random.uniform(min_delay, max_delay))
+    finally:
+        for cli in clients:
+            await TelegramPanel._safe_disconnect(cli)
+
 async def adder_process(task_id: int, payload: dict):
-    # Simplified adder logic
     state.status = True
-    append_task_log(task_id, "Starting adder")
-    # ... logic to add members ...
-    # This is complex, I will put a placeholder or simplified version
-    append_task_log(task_id, "Adder logic placeholder")
-    await asyncio.sleep(5)
-    state.status = False
+    state.reset_adder()
+    try:
+        link = payload.get("link")
+        number_add = int(payload.get("number_add") or 0)
+        number_account = int(payload.get("number_account") or 0)
+        if not link:
+            append_task_log(task_id, "No target link provided")
+            return
+        
+        targets = _normalize_usernames(state.members)
+        targets = _apply_list_filters(targets)
+        if not targets:
+            append_task_log(task_id, "No members to add")
+            return
+        if number_add <= 0:
+            number_add = len(targets)
+        
+        phones = TelegramPanel.list_accounts()
+        if number_account > 0:
+            phones = phones[:number_account]
+        if not phones:
+            append_task_log(task_id, "No accounts available for adder")
+            return
+        
+        clients = await _connect_clients(phones)
+        if not clients:
+            append_task_log(task_id, "Failed to connect any account")
+            return
+        
+        try:
+            chat_id = None
+            for cli in clients:
+                res = await TelegramPanel.join_chat(cli, link)
+                if res.get("ok"):
+                    chat_id = res.get("id")
+                    break
+            if not chat_id:
+                append_task_log(task_id, "Failed to resolve target chat")
+                return
+            
+            target_queue = list(targets)
+            random.shuffle(target_queue)
+            for cli in clients:
+                added = 0
+                while target_queue and added < number_add and state.status:
+                    username = target_queue.pop(0)
+                    if is_member_added(username):
+                        continue
+                    try:
+                        await cli.add_chat_members(chat_id, username)
+                        record_member_added(username, "", task_id)
+                        state.ok_count += 1
+                        append_task_log(task_id, f"Added {username}")
+                        added += 1
+                    except Exception as e:
+                        state.bad_count += 1
+                        append_task_log(task_id, f"Add failed {username}: {e}")
+                    await asyncio.sleep(random.uniform(1, 3))
+                if not state.status:
+                    break
+        finally:
+            for cli in clients:
+                await TelegramPanel._safe_disconnect(cli)
+    finally:
+        state.status = False
 
 async def run_task(task: dict):
     task_id = task["id"]
@@ -194,6 +482,14 @@ async def run_task(task: dict):
             await extract_process(task_id, payload)
         elif t_type == "adder":
             await adder_process(task_id, payload)
+        elif t_type == "join":
+            await join_process(task_id, payload)
+        elif t_type == "invite":
+            await invite_process(task_id, payload)
+        elif t_type == "chat":
+            await chat_process(task_id, payload)
+        elif t_type == "dm":
+            await dm_process(task_id, payload)
         elif t_type == "extract_batch":
             # Loop over links
             links = payload.get("links", [])
