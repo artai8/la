@@ -10,3 +10,7 @@ async def reports_index(start: int = None, end: int = None, user=Depends(get_cur
     # Default to last 24h if not specified? Or all time?
     # Context suggests simple counts.
     return {"data": list_reports(start, end)}
+
+@router.get("/summary")
+async def reports_summary(start: int = None, end: int = None, user=Depends(get_current_user)):
+    return {"data": list_reports(start, end)}
