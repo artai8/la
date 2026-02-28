@@ -483,7 +483,7 @@ async function startInvite() {
     const number_account = parseInt(document.getElementById('inviteNumAccounts').value);
     const use_loaded = document.getElementById('inviteUseLoaded').checked;
     if (!link) return showToast('请输入群ID', 'warning');
-    const d = await api('/api/invite/start', 'POST', { link, group_names, number_add, number_account, use_loaded });
+    const d = await api('/api/adder/invite', 'POST', { link, group_names, number_add, number_account, use_loaded });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -491,7 +491,7 @@ async function startJoin() {
     const links = (document.getElementById('joinLinks').value || '').split('\n').map(v => v.trim()).filter(Boolean);
     const number_account = parseInt(document.getElementById('joinNumAccounts').value);
     if (!links.length) return showToast('请输入链接', 'warning');
-    const d = await api('/api/join/start', 'POST', { links, number_account });
+    const d = await api('/api/adder/join', 'POST', { links, number_account });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -504,7 +504,7 @@ async function startChat() {
     const max_messages = parseInt(document.getElementById('chatMaxMessages').value);
     if (!link) return showToast('请输入群链接', 'warning');
     if (!messages.length) return showToast('请输入消息', 'warning');
-    const d = await api('/api/chat/start', 'POST', { link, messages, number_account, min_delay, max_delay, max_messages });
+    const d = await api('/api/adder/chat', 'POST', { link, messages, number_account, min_delay, max_delay, max_messages });
     showToast(d.message, d.status ? 'success' : 'error');
 }
 
@@ -587,13 +587,13 @@ async function saveSettings() {
         ['db2_name', document.getElementById('settingDb2Name').value]
     ];
     for (const [key, value] of settings) {
-        await api('/api/settings/set', 'POST', { key, value });
+        await api('/api/settings', 'POST', { key, value });
     }
     showToast('设置已保存', 'success');
 }
 
 async function refreshApis() {
-    const d = await api('/api/apis');
+    const d = await api('/api/settings/api');
     const list = document.getElementById('apiList');
     list.innerHTML = '';
     (d.items || []).forEach(it => {
@@ -606,7 +606,7 @@ async function addApi() {
     const api_id = parseInt(document.getElementById('apiIdInput').value);
     const api_hash = document.getElementById('apiHashInput').value.trim();
     if (!api_id || !api_hash) return showToast('请输入API信息', 'warning');
-    await api('/api/apis/add', 'POST', { api_id, api_hash });
+    await api('/api/settings/api', 'POST', { api_id, api_hash });
     document.getElementById('apiIdInput').value = '';
     document.getElementById('apiHashInput').value = '';
     apiEditId = null;
@@ -614,7 +614,7 @@ async function addApi() {
 }
 
 async function removeApi(id) {
-    await api('/api/apis/remove', 'POST', { id });
+    await api('/api/settings/api/remove', 'POST', { id });
     refreshApis();
 }
 
@@ -629,7 +629,7 @@ async function updateApi() {
     const api_id = parseInt(document.getElementById('apiIdInput').value);
     const api_hash = document.getElementById('apiHashInput').value.trim();
     if (!api_id || !api_hash) return showToast('请输入API信息', 'warning');
-    await api('/api/apis/update', 'POST', { id: apiEditId, api_id, api_hash });
+    await api('/api/settings/api/update', 'POST', { id: apiEditId, api_id, api_hash });
     apiEditId = null;
     document.getElementById('apiIdInput').value = '';
     document.getElementById('apiHashInput').value = '';
@@ -637,21 +637,21 @@ async function updateApi() {
 }
 
 async function toggleApi(id, enabled) {
-    await api('/api/apis/toggle', 'POST', { id, enabled });
+    await api('/api/settings/api/toggle', 'POST', { id, enabled });
     refreshApis();
 }
 
 async function importApis() {
     const lines = document.getElementById('apiImportInput').value || '';
     if (!lines.trim()) return showToast('请输入API列表', 'warning');
-    const d = await api('/api/apis/import', 'POST', { lines });
+    const d = await api('/api/settings/api/import', 'POST', { lines });
     showToast(`已导入 ${d.count || 0} 条`, 'success');
     document.getElementById('apiImportInput').value = '';
     refreshApis();
 }
 
 async function refreshProxies() {
-    const d = await api('/api/proxies');
+    const d = await api('/api/settings/proxy');
     const list = document.getElementById('proxyList');
     list.innerHTML = '';
     (d.items || []).forEach(it => {
@@ -666,14 +666,14 @@ async function refreshProxies() {
 async function addProxy() {
     const raw_url = document.getElementById('proxyRawUrl').value.trim();
     if (!raw_url) return showToast('请输入代理链接', 'warning');
-    await api('/api/proxy/add', 'POST', { raw_url });
+    await api('/api/settings/proxy', 'POST', { raw_url });
     document.getElementById('proxyRawUrl').value = '';
     proxyEditId = null;
     refreshProxies();
 }
 
 async function removeProxy(id) {
-    await api('/api/proxies/remove', 'POST', { id });
+    await api('/api/settings/proxy/remove', 'POST', { id });
     refreshProxies();
 }
 
@@ -692,36 +692,39 @@ async function updateProxy() {
     if (!proxyEditId) return showToast('请选择要编辑的代理', 'warning');
     const raw_url = document.getElementById('proxyRawUrl').value.trim();
     if (!raw_url) return showToast('请输入代理链接', 'warning');
-    await api('/api/proxy/update', 'POST', { id: proxyEditId, raw_url });
+    await api('/api/settings/proxy/update', 'POST', { id: proxyEditId, raw_url });
     proxyEditId = null;
     document.getElementById('proxyRawUrl').value = '';
     refreshProxies();
 }
 
 async function toggleProxy(id, enabled) {
-    await api('/api/proxies/toggle', 'POST', { id, enabled });
+    await api('/api/settings/proxy/toggle', 'POST', { id, enabled });
     refreshProxies();
 }
 
 async function importProxies() {
     const lines = document.getElementById('proxyImportInput').value || '';
     if (!lines.trim()) return showToast('请输入代理列表', 'warning');
-    const d = await api('/api/proxies/import', 'POST', { lines });
+    const d = await api('/api/settings/proxy/import', 'POST', { lines });
     showToast(`已导入 ${d.count || 0} 条`, 'success');
     document.getElementById('proxyImportInput').value = '';
     refreshProxies();
 }
 
 async function refreshLists() {
-    const d = await api('/api/lists');
+    const [blackData, whiteData] = await Promise.all([
+        api('/api/lists/blacklist'),
+        api('/api/lists/whitelist')
+    ]);
     const black = document.getElementById('blacklistList');
     const white = document.getElementById('whitelistList');
     black.innerHTML = '';
     white.innerHTML = '';
-    (d.blacklist || []).forEach(v => {
+    (blackData.items || []).forEach(v => {
         black.innerHTML += `<div class="list-item"><span>${v}</span><button class="btn btn-sm" onclick="removeList('blacklist','${v}')"><i class="fas fa-trash"></i></button></div>`;
     });
-    (d.whitelist || []).forEach(v => {
+    (whiteData.items || []).forEach(v => {
         white.innerHTML += `<div class="list-item"><span>${v}</span><button class="btn btn-sm" onclick="removeList('whitelist','${v}')"><i class="fas fa-trash"></i></button></div>`;
     });
 }
@@ -786,7 +789,7 @@ async function refreshTasks() {
     const d = await api('/api/tasks');
     const list = document.getElementById('taskList');
     list.innerHTML = '';
-    (d.items || []).forEach(t => {
+    (d.tasks || []).forEach(t => {
         const runAt = new Date(t.run_at * 1000).toLocaleString();
         list.innerHTML += `<div class="list-item"><span>#${t.id}</span><span>${t.type}</span><span class="muted">${t.status}</span><span class="muted">${runAt}</span><button class="btn btn-sm" onclick="showTaskLog(${t.id})"><i class="fas fa-file-alt"></i></button><button class="btn btn-sm" onclick="stopTask(${t.id})"><i class="fas fa-stop"></i></button><button class="btn btn-sm" onclick="deleteTask(${t.id})"><i class="fas fa-trash"></i></button></div>`;
     });
