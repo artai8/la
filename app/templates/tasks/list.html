@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}定时任务{% endblock %}
+{% block page_title %}定时任务{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl" x-data="tasksPage()">
+    <!-- 创建任务 -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+        <h3 class="text-lg font-semibold mb-4">➕ 新建定时任务</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">任务名称</label>
+                    <input type="text" x-model="form.name"
+                           placeholder="例如：每日采集群A成员"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">任务类型</label>
+                    <select x-model="form.task_type"
+                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">请选择</option>
+                        <option value="scrape_members">采集群成员</option>
+                        <option value="scrape_messages">采集群消息</option>
+                        <option value="invite">邀请入群</option>
+                        <option value="chat">群发消息</option>
+                        <option value="nurture">自动养号</option>
+                        <option value="check_restriction">限制检测</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Cron 表达式</label>
+                    <input type="text" x-model="form.cron_expression"
+                           placeholder="分 时 日 月 周  例: 0 8 * * *"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono">
+                    <div class="text-xs text-gray-500 mt-1 space-y-0.5">
+                        <p>常用示例：</p>
+                        <p class="font-mono">0 8 * * * — 每天 08:00</p>
+                        <p class="font-mono">0 */6 * * * — 每 6 小时</p>
+                        <p class="font-mono">30 9 * * 1-5 — 工作日 09:30</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">任务配置 (JSON)</label>
+                    <textarea x-model="form.config" rows="8"
+                              placeholder='{"group_inputs": "@groupname\n@another", "filter_admins": true, "filter_bots": true}'
+                              class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-xs"></textarea>
+                    <div class="text-xs text-gray-500 mt-1">
+                        <p>根据任务类型填写相应参数，参考手动操作页面的参数</p>
+                    </div>
+                </div>
+
+                <!-- 快速模板 -->
+                <div x-show="form.task_type">
+                    <label class="block text-sm font-medium text-gray-300 mb-1">快速填充模板</label>
+                    <button @click="fillTemplate()" class="text-blue-400 hover:text-blue-300 text-sm underline">
+                        📋 填充默认模板
+                    </button>
+                </div>
+
+                <button @click="createTask()" :disabled="creating"
+                        class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    <span x-show="!creating">创建任务</span>
+                    <span x-show="creating">创建中...</span>
+                </button>
+            </div>
+        </div>
+
+        <div x-show="formMessage" class="mt-4 p-3 rounded-lg text-sm"
+             :class="formError ? 'bg-red-900/50 border border-red-700 text-red-300' : 'bg-green-900/50 border border-green-700 text-green-300'">
+            <span x-text="formMessage"></span>
+        </div>
+    </div>
+
+    <!-- 任务列表 -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">📋 任务列表</h3>
+            <span class="text-xs text-gray-400">共 {{ tasks|length }} 个任务</span>
+        </div>
+
+        {% if tasks %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-700/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-gray-300">名称</th>
+                        <th class="px-4 py-3 text-left text-gray-300">类型</th>
+                        <th class="px-4 py-3 text-left text-gray-300">Cron</th>
+                        <th class="px-4 py-3 text-left text-gray-300">状态</th>
+                        <th class="px-4 py-3 text-left text-gray-300">上次执行</th>
+                        <th class="px-4 py-3 text-right text-gray-300">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                    {% for task in tasks %}
+                    <tr class="hover:bg-gray-700/30">
+                        <td class="px-4 py-3 font-medium">{{ task.name }}</td>
+                        <td class="px-4 py-3">
+                            {% set type_labels = {
+                                'scrape_members': '采集成员',
+                                'scrape_messages': '采集消息',
+                                'invite': '邀请入群',
+                                'chat': '群发消息',
+                                'nurture': '自动养号',
+                                'check_restriction': '限制检测'
+                            } %}
+                            <span class="px-2 py-0.5 rounded text-xs font-medium
+                                {% if task.task_type == 'scrape_members' %}bg-blue-900/50 text-blue-300
+                                {% elif task.task_type == 'scrape_messages' %}bg-cyan-900/50 text-cyan-300
+                                {% elif task.task_type == 'invite' %}bg-green-900/50 text-green-300
+                                {% elif task.task_type == 'nurture' %}bg-amber-900/50 text-amber-300
+                                {% elif task.task_type == 'check_restriction' %}bg-rose-900/50 text-rose-300
+                                {% else %}bg-purple-900/50 text-purple-300{% endif %}">
+                                {{ type_labels.get(task.task_type, task.task_type) }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 font-mono text-xs">{{ task.cron_expression }}</td>
+                        <td class="px-4 py-3">
+                            {% if task.enabled %}
+                            <span class="inline-flex items-center text-green-400 text-xs">
+                                <span class="w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse"></span>已启用
+                            </span>
+                            {% else %}
+                            <span class="text-gray-500 text-xs">已禁用</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-gray-400 text-xs">
+                            {{ task.last_run.strftime('%m-%d %H:%M') if task.last_run else '从未执行' }}
+                        </td>
+                        <td class="px-4 py-3 text-right space-x-2">
+                            <button @click="toggleTask('{{ task.id }}', {{ 'true' if task.enabled else 'false' }})"
+                                    class="text-xs px-2 py-1 rounded transition-colors
+                                    {% if task.enabled %}bg-yellow-900/50 text-yellow-400 hover:bg-yellow-800/50
+                                    {% else %}bg-green-900/50 text-green-400 hover:bg-green-800/50{% endif %}">
+                                {{ '禁用' if task.enabled else '启用' }}
+                            </button>
+                            <button @click="triggerTask('{{ task.id }}')"
+                                    class="text-xs bg-blue-900/50 text-blue-400 hover:bg-blue-800/50 px-2 py-1 rounded transition-colors">
+                                立即执行
+                            </button>
+                            <button @click="deleteTask('{{ task.id }}')"
+                                    class="text-xs bg-red-900/50 text-red-400 hover:bg-red-800/50 px-2 py-1 rounded transition-colors">
+                                删除
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-8 text-center text-gray-500">
+            暂无定时任务
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function tasksPage() {
+    return {
+        form: {
+            name: '',
+            task_type: '',
+            cron_expression: '',
+            config: ''
+        },
+        creating: false,
+        formMessage: '',
+        formError: false,
+
+        fillTemplate() {
+            const templates = {
+                scrape_members: {
+                    group_inputs: "@groupname",
+                    filter_admins: true,
+                    filter_bots: true,
+                    online_filter: "none",
+                    save_local: true,
+                    save_remote: false
+                },
+                scrape_messages: {
+                    group_inputs: "@groupname",
+                    filter_admins: true,
+                    filter_bots: true,
+                    message_limit: 5000,
+                    save_local: true,
+                    save_remote: false
+                },
+                invite: {
+                    source_group_ids: [],
+                    target_groups: "@target",
+                    delay_min: 30,
+                    delay_max: 60,
+                    concurrency: 2,
+                    per_account_limit: 40
+                },
+                chat: {
+                    source_group_ids: [],
+                    target_groups: "@target1\n@target2",
+                    delay_min: 60,
+                    delay_max: 120,
+                    concurrency: 2,
+                    per_account_limit: 100
+                },
+                nurture: {
+                    concurrency: 3
+                },
+                check_restriction: {
+                    concurrency: 5
+                }
+            };
+            if (templates[this.form.task_type]) {
+                this.form.config = JSON.stringify(templates[this.form.task_type], null, 2);
+            }
+        },
+
+        async createTask() {
+            if (!this.form.name || !this.form.task_type || !this.form.cron_expression) {
+                showToast('请填写完整信息', 'error');
+                return;
+            }
+            let configObj;
+            try {
+                configObj = JSON.parse(this.form.config || '{}');
+            } catch (e) {
+                showToast('JSON 配置格式错误', 'error');
+                return;
+            }
+
+            this.creating = true;
+            this.formMessage = '';
+            try {
+                const formData = new FormData();
+                formData.append('name', this.form.name);
+                formData.append('task_type', this.form.task_type);
+                formData.append('cron_expression', this.form.cron_expression);
+                // Send config fields individually for Form backend
+                for (const [key, value] of Object.entries(configObj)) {
+                    if (Array.isArray(value)) {
+                        value.forEach(v => formData.append(key, v));
+                    } else {
+                        formData.append(key, value);
+                    }
+                }
+
+                const resp = await fetch('/tasks/create', { method: 'POST', body: formData });
+                if (resp.redirected || resp.ok) {
+                    showToast('任务创建成功', 'success');
+                    location.href = '/tasks';
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    this.formMessage = data.detail || '创建失败';
+                    this.formError = true;
+                }
+            } catch (e) {
+                this.formMessage = '请求失败: ' + e.message;
+                this.formError = true;
+            }
+            this.creating = false;
+        },
+
+        async toggleTask(id, isEnabled) {
+            try {
+                const resp = await fetch(`/tasks/toggle/${id}`, { method: 'POST' });
+                if (resp.ok || resp.redirected) {
+                    showToast(isEnabled ? '已禁用' : '已启用', 'success');
+                    location.reload();
+                }
+            } catch (e) { showToast('操作失败', 'error'); }
+        },
+
+        async triggerTask(id) {
+            try {
+                const resp = await fetch(`/tasks/trigger/${id}`, { method: 'POST' });
+                const data = await resp.json();
+                showToast(data.message || '已触发执行', 'success');
+            } catch (e) { showToast('操作失败', 'error'); }
+        },
+
+        async deleteTask(id) {
+            if (!confirm('确定删除此任务？')) return;
+            try {
+                const resp = await fetch(`/tasks/delete/${id}`, { method: 'POST' });
+                if (resp.ok || resp.redirected) {
+                    showToast('已删除', 'success');
+                    location.reload();
+                }
+            } catch (e) { showToast('删除失败', 'error'); }
+        }
+    };
+}
+</script>
+{% endblock %}

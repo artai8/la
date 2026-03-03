@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}群发消息{% endblock %}
+{% block page_title %}群发消息{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl" x-data="chatPage()">
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+        <h3 class="text-lg font-semibold mb-4">📤 批量群发消息</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 左列 -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">来源消息群组（选择已采集的群组）</label>
+                    <div class="bg-gray-700 rounded-lg p-3 max-h-48 overflow-y-auto space-y-1">
+                        {% for group, msg_count in groups_with_counts %}
+                        <label class="flex items-center space-x-2 cursor-pointer hover:bg-gray-600/50 p-1 rounded">
+                            <input type="checkbox" value="{{ group.id }}" x-model="sourceGroupIds"
+                                   class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm">{{ group.title }}
+                                <span class="text-gray-500">({{ msg_count }} 条)</span>
+                            </span>
+                        </label>
+                        {% endfor %}
+                        {% if not groups_with_counts %}
+                        <p class="text-gray-500 text-sm">暂无已采集的消息群组</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">目标群组（每行一个）</label>
+                    <textarea x-model="targetGroups" rows="4"
+                              placeholder="-1001234567890&#10;t.me/groupname&#10;@username"
+                              class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">执行账号</label>
+                    <div class="bg-gray-700 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1">
+                        {% for account in accounts %}
+                        <label class="flex items-center space-x-2 cursor-pointer hover:bg-gray-600/50 p-1 rounded">
+                            <input type="checkbox" value="{{ account.id }}" x-model="accountIds"
+                                   class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm">{{ account.phone }}
+                                {% if account.nickname %}({{ account.nickname }}){% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                        {% if not accounts %}
+                        <p class="text-gray-500 text-sm">暂无可用账号</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右列 -->
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">最小间隔（秒）</label>
+                        <input type="number" x-model.number="delayMin" min="5" max="600"
+                               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">最大间隔（秒）</label>
+                        <input type="number" x-model.number="delayMax" min="10" max="900"
+                               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 -mt-2">建议 30-120 秒，避免慢速模式限制</p>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">并发账号数</label>
+                    <input type="number" x-model.number="concurrency" min="1" max="10"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">每个账号发送上限</label>
+                    <input type="number" x-model.number="perAccountLimit" min="1" max="1000"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div class="bg-gray-700/50 rounded-lg p-3 text-sm text-gray-400 space-y-1">
+                    <p>⚠️ 注意事项：</p>
+                    <ul class="list-disc list-inside text-xs space-y-0.5">
+                        <li>部分群组有慢速模式，系统会自动等待</li>
+                        <li>遇到 PeerFlood 会停止该账号操作</li>
+                        <li>已发送的消息不会重复发送</li>
+                        <li>建议配合多账号轮换使用</li>
+                    </ul>
+                </div>
+
+                <button @click="startChat()" :disabled="loading"
+                        class="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    <span x-show="!loading">🚀 开始群发</span>
+                    <span x-show="loading">⏳ 发送中...</span>
+                </button>
+            </div>
+        </div>
+
+        <div x-show="message" class="mt-4 p-3 rounded-lg text-sm"
+             :class="error ? 'bg-red-900/50 border border-red-700 text-red-300' : 'bg-green-900/50 border border-green-700 text-green-300'">
+            <span x-text="message"></span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function chatPage() {
+    return {
+        sourceGroupIds: [],
+        targetGroups: '',
+        accountIds: [],
+        delay: 60,
+        delayMin: 60,
+        delayMax: 120,
+        concurrency: 2,
+        perAccountLimit: 100,
+        loading: false,
+        message: '',
+        error: false,
+
+        async startChat() {
+            if (this.sourceGroupIds.length === 0) { showToast('请选择消息来源群组', 'error'); return; }
+            if (!this.targetGroups.trim()) { showToast('请输入目标群组', 'error'); return; }
+            if (this.accountIds.length === 0) { showToast('请选择执行账号', 'error'); return; }
+
+            this.loading = true;
+            this.message = '';
+            try {
+                const formData = new FormData();
+                this.sourceGroupIds.forEach(id => formData.append('source_group_ids', id));
+                formData.append('target_groups', this.targetGroups);
+                this.accountIds.forEach(id => formData.append('account_ids', id));
+                formData.append('delay_min', this.delayMin);
+                formData.append('delay_max', this.delayMax);
+                formData.append('concurrency', this.concurrency);
+                formData.append('per_account_limit', this.perAccountLimit);
+
+                const resp = await fetch('/operations/chat/start', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                this.message = data.message;
+                this.error = data.status === 'error';
+                if (data.status === 'started') {
+                    showToast('群发任务已在后台启动', 'success');
+                }
+            } catch (e) {
+                this.message = '请求失败: ' + e.message;
+                this.error = true;
+            }
+            this.loading = false;
+        }
+    };
+}
+</script>
+{% endblock %}

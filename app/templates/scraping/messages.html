@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}采集群消息{% endblock %}
+{% block page_title %}采集群消息{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl" x-data="scrapeMessages()">
+    <!-- 配置区 -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+        <h3 class="text-lg font-semibold mb-4">💬 采集群消息配置</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">群组（每行一个）</label>
+                    <textarea x-model="groupInputs" rows="4"
+                              placeholder="-1001234567890&#10;t.me/groupname&#10;@username"
+                              class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">执行账号</label>
+                    <div class="bg-gray-700 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1">
+                        {% for account in accounts %}
+                        <label class="flex items-center space-x-2 cursor-pointer hover:bg-gray-600/50 p-1 rounded">
+                            <input type="checkbox" value="{{ account.id }}" x-model="accountIds"
+                                   class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                            <span class="text-sm">{{ account.phone }}
+                                {% if account.nickname %}({{ account.nickname }}){% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                        {% if not accounts %}
+                        <p class="text-gray-500 text-sm">暂无可用账号</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">消息数量上限</label>
+                    <input type="number" x-model.number="limit" min="1" max="50000"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-gray-300">过滤选项</label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="filterAdmins" checked
+                               class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-300">过滤管理员消息</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="filterBots" checked
+                               class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-300">过滤机器人消息</span>
+                    </label>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-gray-300">存储目标</label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="saveLocal" checked
+                               class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-300">本地数据库</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="saveRemote"
+                               class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-300">远程数据库 (Supabase)</span>
+                    </label>
+                </div>
+
+                <button @click="startScrape()" :disabled="loading"
+                        class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg font-medium transition-colors mt-4">
+                    <span x-show="!loading">🚀 开始采集</span>
+                    <span x-show="loading">⏳ 采集中...</span>
+                </button>
+            </div>
+        </div>
+
+        <div x-show="message" class="mt-4 p-3 rounded-lg text-sm"
+             :class="error ? 'bg-red-900/50 border border-red-700 text-red-300' : 'bg-green-900/50 border border-green-700 text-green-300'">
+            <span x-text="message"></span>
+        </div>
+    </div>
+
+    <!-- 关键词黑名单 -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold">🚫 关键词黑名单</h3>
+            <span class="text-xs text-gray-400">包含这些关键词的消息将被过滤</span>
+        </div>
+
+        <div class="flex space-x-3 mb-4">
+            <input type="text" x-model="newKeyword" @keyup.enter="addKeyword()"
+                   placeholder="输入关键词"
+                   class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500">
+            <button @click="addKeyword()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                添加
+            </button>
+        </div>
+
+        <div class="flex space-x-3 mb-4">
+            <textarea x-model="batchKeywords" rows="2"
+                      placeholder="批量添加（每行一个关键词）"
+                      class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 text-sm"></textarea>
+            <button @click="addBatchKeywords()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors self-end">
+                批量添加
+            </button>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+            {% for kw in keywords %}
+            <span class="inline-flex items-center bg-gray-700 text-gray-300 px-3 py-1 rounded-full text-sm">
+                {{ kw.keyword }}
+                <button @click="deleteKeyword('{{ kw.id }}')" class="ml-2 text-gray-500 hover:text-red-400">&times;</button>
+            </span>
+            {% endfor %}
+            {% if not keywords %}
+            <span class="text-gray-500 text-sm">暂无黑名单关键词</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 已采集消息概览 -->
+    {% if groups %}
+    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <div class="p-4 border-b border-gray-700">
+            <h3 class="text-lg font-semibold">已采集消息统计</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-700/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-gray-300">群名称</th>
+                        <th class="px-4 py-3 text-left text-gray-300">Telegram ID</th>
+                        <th class="px-4 py-3 text-left text-gray-300">最后采集</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                    {% for group in groups %}
+                    <tr class="hover:bg-gray-700/30">
+                        <td class="px-4 py-3">{{ group.title }}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{ group.telegram_id }}</td>
+                        <td class="px-4 py-3 text-gray-400">{{ group.last_scraped_at.strftime('%Y-%m-%d %H:%M') if group.last_scraped_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function scrapeMessages() {
+    return {
+        groupInputs: '',
+        accountIds: [],
+        filterAdmins: true,
+        filterBots: true,
+        limit: 5000,
+        saveLocal: true,
+        saveRemote: false,
+        newKeyword: '',
+        batchKeywords: '',
+        loading: false,
+        message: '',
+        error: false,
+
+        async startScrape() {
+            if (!this.groupInputs.trim()) { showToast('请输入群组', 'error'); return; }
+            if (this.accountIds.length === 0) { showToast('请选择执行账号', 'error'); return; }
+
+            this.loading = true;
+            this.message = '';
+            try {
+                const formData = new FormData();
+                formData.append('group_inputs', this.groupInputs);
+                this.accountIds.forEach(id => formData.append('account_ids', id));
+                formData.append('filter_admins', this.filterAdmins);
+                formData.append('filter_bots', this.filterBots);
+                formData.append('message_limit', this.limit);
+                formData.append('save_local', this.saveLocal);
+                formData.append('save_remote', this.saveRemote);
+
+                const resp = await fetch('/scraping/messages/start', { method: 'POST', body: formData });
+                const data = await resp.json();
+
+                this.message = data.message;
+                this.error = data.status === 'error';
+                if (data.status === 'started') {
+                    showToast('消息采集已在后台启动', 'success');
+                }
+            } catch (e) {
+                this.message = '请求失败: ' + e.message;
+                this.error = true;
+            }
+            this.loading = false;
+        },
+
+        async addKeyword() {
+            if (!this.newKeyword.trim()) return;
+            try {
+                const formData = new FormData();
+                formData.append('keyword', this.newKeyword.trim());
+                const resp = await fetch('/scraping/keywords/add', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (resp.ok) {
+                    this.newKeyword = '';
+                    location.reload();
+                }
+            } catch (e) { showToast('添加失败', 'error'); }
+        },
+
+        async addBatchKeywords() {
+            if (!this.batchKeywords.trim()) return;
+            try {
+                const formData = new FormData();
+                formData.append('raw_text', this.batchKeywords);
+                const resp = await fetch('/scraping/keywords/batch', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (resp.ok) {
+                    this.batchKeywords = '';
+                    location.reload();
+                }
+            } catch (e) { showToast('批量添加失败', 'error'); }
+        },
+
+        async deleteKeyword(id) {
+            if (!confirm('确定删除此关键词？')) return;
+            try {
+                const resp = await fetch(`/scraping/keywords/delete/${id}`, { method: 'POST' });
+                if (resp.ok) location.reload();
+            } catch (e) { showToast('删除失败', 'error'); }
+        }
+    };
+}
+</script>
+{% endblock %}

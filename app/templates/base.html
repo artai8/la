@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN" x-data="{ sidebarOpen: true }">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Telegram 管理系统{% endblock %}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex">
+    <!-- 侧边栏 -->
+    <aside class="w-64 bg-gray-800 min-h-screen flex-shrink-0 border-r border-gray-700"
+           :class="{ '-ml-64': !sidebarOpen }"
+           style="transition: margin-left 0.3s ease;">
+        <div class="p-4 border-b border-gray-700">
+            <h1 class="text-xl font-bold text-blue-400">📱 TG Manager</h1>
+            <p class="text-xs text-gray-500 mt-1">多账号管理系统</p>
+        </div>
+        <nav class="p-4 space-y-1">
+            <a href="/settings/supabase"
+               class="nav-link {% if '/settings/' in request.url.path %}nav-active{% endif %}">
+                <span class="mr-2">⚙️</span> 设置
+            </a>
+            <div class="ml-6 space-y-1 {% if '/settings/' not in request.url.path %}hidden{% endif %}">
+                <a href="/settings/supabase"
+                   class="nav-sub {% if request.url.path == '/settings/supabase' %}active{% endif %}">
+                    Supabase 配置
+                </a>
+                <a href="/settings/telegram-api"
+                   class="nav-sub {% if request.url.path == '/settings/telegram-api' %}active{% endif %}">
+                    Telegram API
+                </a>
+                <a href="/settings/proxy"
+                   class="nav-sub {% if request.url.path == '/settings/proxy' %}active{% endif %}">
+                    代理配置
+                </a>
+            </div>
+
+            <a href="/accounts"
+               class="nav-link {% if '/accounts' in request.url.path %}nav-active{% endif %}">
+                <span class="mr-2">👤</span> 账号管理
+            </a>
+
+            <a href="/scraping/members"
+               class="nav-link {% if '/scraping/' in request.url.path %}nav-active{% endif %}">
+                <span class="mr-2">📥</span> 采集
+            </a>
+            <div class="ml-6 space-y-1 {% if '/scraping/' not in request.url.path %}hidden{% endif %}">
+                <a href="/scraping/members"
+                   class="nav-sub {% if request.url.path == '/scraping/members' %}active{% endif %}">
+                    群成员采集
+                </a>
+                <a href="/scraping/messages"
+                   class="nav-sub {% if request.url.path == '/scraping/messages' %}active{% endif %}">
+                    聊天内容采集
+                </a>
+            </div>
+
+            <a href="/operations/invite"
+               class="nav-link {% if '/operations/' in request.url.path %}nav-active{% endif %}">
+                <span class="mr-2">🚀</span> 拉人与群聊
+            </a>
+            <div class="ml-6 space-y-1 {% if '/operations/' not in request.url.path %}hidden{% endif %}">
+                <a href="/operations/invite"
+                   class="nav-sub {% if request.url.path == '/operations/invite' %}active{% endif %}">
+                    拉人入群
+                </a>
+                <a href="/operations/chat"
+                   class="nav-sub {% if request.url.path == '/operations/chat' %}active{% endif %}">
+                    群聊发送
+                </a>
+            </div>
+
+            <a href="/tasks"
+               class="nav-link {% if request.url.path == '/tasks' %}nav-active{% endif %}">
+                <span class="mr-2">📋</span> 定时任务
+            </a>
+
+            <a href="/logs"
+               class="nav-link {% if '/logs' in request.url.path %}nav-active{% endif %}">
+                <span class="mr-2">📄</span> 日志
+            </a>
+        </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 flex flex-col">
+        <!-- 顶栏 -->
+        <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between">
+            <div class="flex items-center">
+                <button @click="sidebarOpen = !sidebarOpen" class="text-gray-400 hover:text-white mr-4">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+                <h2 class="text-lg font-semibold">{% block page_title %}仪表盘{% endblock %}</h2>
+            </div>
+            <div class="text-sm text-gray-400" id="status-bar">
+                系统运行中
+            </div>
+        </header>
+
+        <!-- 内容 -->
+        <div class="flex-1 p-6 overflow-auto">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- 全局通知 -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

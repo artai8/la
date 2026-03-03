@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}运行日志{% endblock %}
+{% block page_title %}运行日志{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl" x-data="logsPage()">
+    <!-- 过滤栏 -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-6">
+        <div class="flex flex-wrap items-end gap-4">
+            <div>
+                <label class="block text-xs text-gray-400 mb-1">模块</label>
+                <select x-model="filters.module"
+                        class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    <option value="scrape">采集</option>
+                    <option value="invite">邀请</option>
+                    <option value="chat">群发</option>
+                    <option value="account">账号</option>
+                    <option value="proxy">代理</option>
+                    <option value="task">定时任务</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-400 mb-1">级别</label>
+                <select x-model="filters.level"
+                        class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-400 mb-1">任务</label>
+                <select x-model="filters.task_id"
+                        class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    {% for task in tasks %}
+                    <option value="{{ task.id }}">{{ task.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-400 mb-1">账号</label>
+                <select x-model="filters.account_id"
+                        class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">全部</option>
+                    {% for account in accounts %}
+                    <option value="{{ account.id }}">{{ account.phone }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button @click="fetchLogs()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                🔍 查询
+            </button>
+
+            <button @click="downloadLogs()"
+                    class="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg text-sm transition-colors">
+                📥 下载
+            </button>
+
+            <div class="ml-auto flex items-center space-x-2">
+                <label class="flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" x-model="autoScroll"
+                           class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                    <span class="text-xs text-gray-400">自动滚动</span>
+                </label>
+                <label class="flex items-center space-x-1.5 cursor-pointer">
+                    <input type="checkbox" x-model="realtime" @change="toggleRealtime()"
+                           class="rounded bg-gray-600 border-gray-500 text-blue-600 focus:ring-blue-500">
+                    <span class="text-xs text-gray-400">实时推送</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志显示 -->
+    <div class="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
+        <div class="p-3 border-b border-gray-700 flex items-center justify-between">
+            <span class="text-sm text-gray-400">
+                日志条数: <span x-text="logs.length" class="text-white font-mono"></span>
+            </span>
+            <button @click="logs = []; logHtml = ''"
+                    class="text-xs text-gray-500 hover:text-gray-300 transition-colors">清空显示</button>
+        </div>
+
+        <div x-ref="logContainer"
+             class="p-4 font-mono text-xs leading-relaxed max-h-[600px] overflow-y-auto space-y-0.5"
+             x-html="logHtml">
+            <p class="text-gray-600">等待加载日志...</p>
+        </div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="flex items-center justify-between mt-4" x-show="totalPages > 1">
+        <button @click="if(page > 1) { page--; fetchLogs(); }" :disabled="page <= 1"
+                class="bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-white px-3 py-1.5 rounded text-sm transition-colors">
+            ◀ 上一页
+        </button>
+        <span class="text-sm text-gray-400">
+            第 <span x-text="page"></span> / <span x-text="totalPages"></span> 页
+        </span>
+        <button @click="if(page < totalPages) { page++; fetchLogs(); }" :disabled="page >= totalPages"
+                class="bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-white px-3 py-1.5 rounded text-sm transition-colors">
+            下一页 ▶
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logsPage() {
+    return {
+        filters: { module: '', level: '', task_id: '', account_id: '' },
+        logs: [],
+        logHtml: '',
+        page: 1,
+        totalPages: 1,
+        autoScroll: true,
+        realtime: false,
+        eventSource: null,
+
+        init() {
+            this.fetchLogs();
+        },
+
+        async fetchLogs() {
+            const params = new URLSearchParams();
+            if (this.filters.module) params.append('module', this.filters.module);
+            if (this.filters.level) params.append('level', this.filters.level);
+            if (this.filters.task_id) params.append('task_id', this.filters.task_id);
+            if (this.filters.account_id) params.append('account_id', this.filters.account_id);
+            params.append('page', this.page);
+            params.append('per_page', 200);
+
+            try {
+                const resp = await fetch(`/logs/data?${params}`);
+                const data = await resp.json();
+                this.logs = data.logs || [];
+                this.totalPages = data.total_pages || 1;
+                this.renderLogs();
+            } catch (e) {
+                showToast('加载日志失败', 'error');
+            }
+        },
+
+        renderLogs() {
+            const levelColors = {
+                'DEBUG': 'text-gray-500',
+                'INFO': 'text-blue-400',
+                'WARNING': 'text-yellow-400',
+                'ERROR': 'text-red-400',
+                'CRITICAL': 'text-red-500 font-bold'
+            };
+
+            this.logHtml = this.logs.map(log => {
+                const color = levelColors[log.level] || 'text-gray-300';
+                const time = log.created_at ? new Date(log.created_at).toLocaleString('zh-CN') : '';
+                return `<div class="hover:bg-gray-800/50 px-1 rounded">` +
+                    `<span class="text-gray-600">${time}</span> ` +
+                    `<span class="${color} font-medium">[${log.level}]</span> ` +
+                    `<span class="text-gray-500">[${log.module || '-'}]</span> ` +
+                    `<span class="text-gray-300">${this.escapeHtml(log.message)}</span>` +
+                    `</div>`;
+            }).join('');
+
+            if (this.autoScroll) {
+                this.$nextTick(() => {
+                    const container = this.$refs.logContainer;
+                    if (container) container.scrollTop = container.scrollHeight;
+                });
+            }
+        },
+
+        toggleRealtime() {
+            if (this.realtime) {
+                this.eventSource = new EventSource('/logs/stream');
+                this.eventSource.onmessage = (e) => {
+                    try {
+                        const log = JSON.parse(e.data);
+                        this.logs.push(log);
+                        if (this.logs.length > 1000) this.logs.shift();
+                        this.renderLogs();
+                    } catch (err) {}
+                };
+                this.eventSource.onerror = () => {
+                    this.realtime = false;
+                    this.eventSource?.close();
+                };
+            } else {
+                this.eventSource?.close();
+                this.eventSource = null;
+            }
+        },
+
+        downloadLogs() {
+            const params = new URLSearchParams();
+            if (this.filters.module) params.append('module', this.filters.module);
+            if (this.filters.level) params.append('level', this.filters.level);
+            if (this.filters.task_id) params.append('task_id', this.filters.task_id);
+            if (this.filters.account_id) params.append('account_id', this.filters.account_id);
+            window.open(`/logs/download?${params}`, '_blank');
+        },
+
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    };
+}
+</script>
+{% endblock %}

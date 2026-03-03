@@ -1,0 +1,73 @@
+<!-- HTMX partial: 已采集的群成员表格 -->
+{% if members %}
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-gray-700/50">
+            <tr>
+                <th class="px-4 py-3 text-left text-gray-300">用户名</th>
+                <th class="px-4 py-3 text-left text-gray-300">Telegram ID</th>
+                <th class="px-4 py-3 text-left text-gray-300">名称</th>
+                <th class="px-4 py-3 text-left text-gray-300">在线状态</th>
+                <th class="px-4 py-3 text-left text-gray-300">邀请状态</th>
+                <th class="px-4 py-3 text-left text-gray-300">采集时间</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-700">
+            {% for member in members %}
+            <tr class="hover:bg-gray-700/30">
+                <td class="px-4 py-3 font-mono text-xs">
+                    {% if member.username %}
+                    <a href="https://t.me/{{ member.username }}" target="_blank"
+                       class="text-blue-400 hover:underline">@{{ member.username }}</a>
+                    {% else %}
+                    <span class="text-gray-500">-</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-gray-400">{{ member.user_id }}</td>
+                <td class="px-4 py-3">
+                    {{ member.first_name or '' }} {{ member.last_name or '' }}
+                    {% if member.is_admin %}
+                    <span class="ml-1 px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 rounded text-xs">管理员</span>
+                    {% endif %}
+                    {% if member.is_bot %}
+                    <span class="ml-1 px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded text-xs">机器人</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-xs">
+                    {% if member.online_status == 'recently' %}
+                    <span class="text-green-400">最近在线</span>
+                    {% elif member.online_status == 'last_week' %}
+                    <span class="text-yellow-400">一周内</span>
+                    {% elif member.online_status == 'last_month' %}
+                    <span class="text-orange-400">一月内</span>
+                    {% elif member.online_status == 'long_ago' %}
+                    <span class="text-red-400">很久以前</span>
+                    {% else %}
+                    <span class="text-gray-500">未知</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-xs">
+                    {% if member.invite_status == 'success' %}
+                    <span class="text-green-400">✓ 已邀请</span>
+                    {% elif member.invite_status == 'failed' %}
+                    <span class="text-red-400">✗ 失败</span>
+                    {% else %}
+                    <span class="text-gray-500">待处理</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-gray-400 text-xs">
+                    {{ member.scraped_at.strftime('%m-%d %H:%M') if member.scraped_at else '-' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<div class="p-3 text-xs text-gray-500 border-t border-gray-700">
+    显示 {{ members|length }} 条记录 (最多 500 条)
+</div>
+{% else %}
+<div class="p-8 text-center text-gray-500">
+    暂无采集数据
+</div>
+{% endif %}
