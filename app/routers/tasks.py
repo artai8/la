@@ -3,10 +3,10 @@ import logging
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 
 from app.database import get_db
-from app.models import Task, Account
+from app.models import Task, Account, Group, ScrapedMember
 from app.services.task_scheduler import register_task, unregister_task
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,21 @@ async def tasks_page(request: Request, db: AsyncSession = Depends(get_db)):
     )
     accounts = acc_result.scalars().all()
 
+    # 获取有已采集成员的群组（供invite/chat类型选择来源群组）
+    group_result = await db.execute(
+        select(Group, func.count(ScrapedMember.id).label("member_count"))
+        .join(ScrapedMember, Group.id == ScrapedMember.group_id, isouter=True)
+        .group_by(Group.id)
+        .having(func.count(ScrapedMember.id) > 0)
+        .order_by(Group.title)
+    )
+    groups_with_counts = group_result.all()
+
     return request.app.state.templates.TemplateResponse("tasks/list.html", {
         "request": request,
         "tasks": tasks,
         "accounts": accounts,
+        "groups_with_counts": groups_with_counts,
     })
 
 
