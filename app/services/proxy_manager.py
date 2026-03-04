@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import signal
+import ssl
 import subprocess
 import urllib.parse
 from typing import Optional
@@ -442,8 +443,81 @@ def ensure_proxy_running(proxy_id: str, proxy_data: dict) -> int | None:
 
 # ===================== 代理检测 =====================
 
+async def _wait_for_port(port: int, timeout: float = 5.0) -> bool:
+    """等待本地端口开始接受连接（轮询而非固定等待）"""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", port),
+                timeout=1.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (ConnectionRefusedError, asyncio.TimeoutError, OSError):
+            await asyncio.sleep(0.3)
+    return False
+
+
+def _strip_ipv6_brackets(addr: str) -> str:
+    """去除 IPv6 地址的方括号: [2606:4700::1] -> 2606:4700::1"""
+    if addr.startswith("[") and addr.endswith("]"):
+        return addr[1:-1]
+    return addr
+
+
+async def _check_proxy_tcp(proxy_data: dict, timeout: int = 8) -> bool:
+    """回退检测: 直接 TCP/TLS 连通性测试代理服务器
+
+    对 CDN 回源代理(Cloudflare 等)，TCP 连通 = CDN 节点在线，
+    虽然无法 100% 验证后端存活，但消除了 xray 依赖导致的误判。
+    """
+    address = _strip_ipv6_brackets(proxy_data.get("address", ""))
+    port = proxy_data.get("port", 0)
+    cfg = proxy_data.get("config_json", {})
+    security = cfg.get("security", cfg.get("tls", ""))
+    sni = cfg.get("sni", address)
+
+    if not address or not port:
+        return False
+
+    try:
+        if security in ("tls", "reality") or port == 443:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    address, port,
+                    ssl=ctx,
+                    server_hostname=_strip_ipv6_brackets(sni) if sni else None,
+                ),
+                timeout=timeout,
+            )
+        else:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(address, port),
+                timeout=timeout,
+            )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception as e:
+        logger.debug(f"TCP 回退检测失败 ({address}:{port}): {e}")
+        return False
+
+
 async def check_proxy(proxy_data: dict, local_port: int, timeout: int = 10) -> bool:
-    """检测代理是否可用: 通过本地 SOCKS5 代理访问 https://t.me"""
+    """检测代理是否可用:
+    1) 优先通过 xray SOCKS5 代理发送 HTTP 请求
+    2) 若 xray 不可用/启动失败, 回退到 TCP/TLS 连通性检测
+    """
+    # ---- xray 不存在时直接回退 ----
+    if not os.path.isfile(XRAY_BIN_PATH):
+        logger.info("xray 二进制不存在, 使用 TCP 回退检测")
+        return await _check_proxy_tcp(proxy_data, timeout)
+
     proxy_id = f"check_{local_port}"
     config = _generate_xray_config(proxy_data, local_port)
     config_path = str(XRAY_CONFIG_DIR / f"{proxy_id}.json")
@@ -453,12 +527,7 @@ async def check_proxy(proxy_data: dict, local_port: int, timeout: int = 10) -> b
             json.dump(config, f, indent=2)
     except Exception as e:
         logger.error(f"检测代理: 写入配置失败: {e}")
-        return False
-
-    if not os.path.isfile(XRAY_BIN_PATH):
-        logger.warning(f"xray 不存在 ({XRAY_BIN_PATH}), 尝试直接HTTP检测")
-        # Fallback: 如果没有 xray，无法检测 vless/vmess/trojan
-        return False
+        return await _check_proxy_tcp(proxy_data, timeout)
 
     process = None
     try:
@@ -467,30 +536,63 @@ async def check_proxy(proxy_data: dict, local_port: int, timeout: int = 10) -> b
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        # 等待 xray 启动
-        await asyncio.sleep(2)
 
-        # 通过 SOCKS5 代理发送 HTTP 请求
+        # 1) 等待 SOCKS5 端口真正就绪（最多 5 秒）
+        port_ready = await _wait_for_port(local_port, timeout=5.0)
+
+        # 2) 检查 xray 是否已经崩溃
+        if process.poll() is not None:
+            stderr_out = ""
+            try:
+                stderr_out = process.stderr.read().decode(errors="replace")[:300]
+            except Exception:
+                pass
+            logger.warning(
+                f"xray 进程已退出 (port={local_port}, code={process.returncode}): "
+                f"{stderr_out}"
+            )
+            return await _check_proxy_tcp(proxy_data, timeout)
+
+        if not port_ready:
+            logger.warning(f"xray SOCKS5 端口未就绪 (port={local_port}), 回退 TCP 检测")
+            return await _check_proxy_tcp(proxy_data, timeout)
+
+        # 3) 通过 SOCKS5 代理发 HTTP 请求
+        #    使用 Google generate_204 — 轻量、稳定、无重定向
         async with httpx.AsyncClient(
             proxy=f"socks5://127.0.0.1:{local_port}",
             timeout=timeout,
+            follow_redirects=True,
         ) as client:
-            resp = await client.get("https://t.me/")
-            return resp.status_code == 200
+            resp = await client.head("https://www.gstatic.com/generate_204")
+            if resp.status_code in (200, 204, 301, 302):
+                return True
+            # 备用: 尝试 t.me
+            resp2 = await client.head("https://t.me/")
+            return resp2.status_code < 400
+
     except Exception as e:
-        logger.debug(f"代理检测失败 (port={local_port}): {e}")
-        return False
+        logger.info(f"xray 代理检测异常 (port={local_port}): {e}")
+        # xray 方式失败, 回退 TCP
+        return await _check_proxy_tcp(proxy_data, timeout)
     finally:
         if process:
             try:
                 process.terminate()
                 process.wait(timeout=3)
-            except Exception:
-                if process:
+            except subprocess.TimeoutExpired:
+                try:
                     process.kill()
+                except Exception:
+                    pass
+            except Exception:
+                pass
         config_file = XRAY_CONFIG_DIR / f"{proxy_id}.json"
         if config_file.exists():
-            config_file.unlink()
+            try:
+                config_file.unlink()
+            except Exception:
+                pass
 
 
 async def batch_check_proxies(proxies: list[dict], concurrency: int = 5) -> dict[str, bool]:
