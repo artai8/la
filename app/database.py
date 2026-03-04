@@ -1,4 +1,5 @@
 """数据库连接 - 本地 PostgreSQL + Supabase 远程"""
+import asyncio
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from supabase import create_client, Client as SupabaseClient
@@ -28,12 +29,26 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
-async def init_db():
-    """初始化数据库表"""
+async def init_db(max_retries: int = 10, base_delay: float = 2.0):
+    """初始化数据库表（带重试，等待 PostgreSQL 就绪）"""
     from app.models import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("数据库表初始化完成")
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("数据库表初始化完成")
+            return
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"数据库连接失败，已重试 {max_retries} 次，放弃: {e}")
+                raise
+            delay = min(base_delay * (2 ** (attempt - 1)), 30)  # 指数退避，最长 30 秒
+            logger.warning(
+                f"数据库连接失败 (尝试 {attempt}/{max_retries})，"
+                f"{delay:.0f}s 后重试: {e}"
+            )
+            await asyncio.sleep(delay)
 
 
 # ---- Supabase 远程数据库 ----
