@@ -1,4 +1,4 @@
-﻿"""SQLAlchemy ORM 模型"""
+"""SQLAlchemy ORM 模型"""
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -12,7 +12,8 @@ Base = declarative_base()
 
 
 def _utcnow():
-    return datetime.now(timezone.utc)
+    """返回当前 UTC 时间（naive，兼容 TIMESTAMP WITHOUT TIME ZONE 列）"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def gen_uuid():
