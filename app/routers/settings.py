@@ -1,14 +1,14 @@
 """设置路由 - Supabase / Telegram API / 代理"""
 import logging
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from app.database import get_db, get_supabase, reset_supabase
 from app.models import Setting, TelegramApiConfig, Proxy
 from app.services.proxy_manager import (
-    parse_proxy_link, parse_subscription, batch_check_proxies,
+    parse_proxy_link, parse_subscription, batch_check_proxies, check_proxy,
     start_xray_process, stop_xray_process, _allocate_port,
 )
 
@@ -300,6 +300,61 @@ async def check_all_proxies(
         "proxies": proxies,
         "message": f"检测完成: {alive_count} 个存活, {dead_count} 个失效",
         "msg_type": "success",
+    })
+
+
+@router.post("/proxy/check/{proxy_id}")
+async def check_single_proxy(proxy_id: str, db: AsyncSession = Depends(get_db)):
+    """检测单个代理节点"""
+    result = await db.execute(select(Proxy).where(Proxy.id == proxy_id))
+    proxy = result.scalar_one_or_none()
+    if not proxy:
+        return JSONResponse({"status": "error", "message": "代理不存在"})
+
+    proxy_data = {
+        "id": proxy.id,
+        "protocol": proxy.protocol,
+        "address": proxy.address,
+        "port": proxy.port,
+        "config_json": proxy.config_json,
+    }
+
+    # 确保有本地端口
+    if not proxy.local_port:
+        proxy.local_port = _allocate_port()
+        await db.flush()
+
+    # 启动 xray 并检测
+    start_xray_process(proxy.id, proxy_data, proxy.local_port)
+    alive = await check_proxy(proxy_data, proxy.local_port)
+    proxy.status = "active" if alive else "dead"
+    await db.commit()
+
+    return JSONResponse({
+        "status": "ok",
+        "alive": alive,
+        "proxy_status": proxy.status,
+        "message": "✅ 存活" if alive else "❌ 失效",
+    })
+
+
+@router.post("/proxy/delete-dead")
+async def delete_dead_proxies(db: AsyncSession = Depends(get_db)):
+    """一键删除所有失效代理"""
+    result = await db.execute(select(Proxy).where(Proxy.status == "dead"))
+    dead_proxies = result.scalars().all()
+
+    count = len(dead_proxies)
+    for p in dead_proxies:
+        stop_xray_process(p.id)
+
+    await db.execute(delete(Proxy).where(Proxy.status == "dead"))
+    await db.commit()
+
+    return JSONResponse({
+        "status": "ok",
+        "deleted": count,
+        "message": f"已删除 {count} 个失效代理",
     })
 
 
