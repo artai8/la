@@ -35,7 +35,7 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # 启动
