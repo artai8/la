@@ -11,6 +11,80 @@ from app.database import get_supabase
 logger = logging.getLogger(__name__)
 
 
+async def pull_sessions_from_remote(
+    db: AsyncSession,
+    api_config_id: str,
+    proxy_id: str | None = None,
+) -> dict:
+    """从 Supabase 远程数据库拉取所有 session 并导入到本地
+
+    Returns: {total, imported, skipped, failed, errors: [...], message}
+    """
+    supabase = get_supabase()
+    if not supabase:
+        return {"total": 0, "imported": 0, "skipped": 0, "failed": 0,
+                "errors": ["Supabase 未配置，请先在设置页面配置远程数据库"],
+                "message": "Supabase 未配置"}
+
+    try:
+        response = supabase.table("sessions").select("*").execute()
+        remote_sessions = response.data if response.data else []
+    except Exception as e:
+        logger.error(f"从 Supabase 拉取 sessions 失败: {e}")
+        return {"total": 0, "imported": 0, "skipped": 0, "failed": 0,
+                "errors": [f"拉取失败: {e}"], "message": f"拉取失败: {e}"}
+
+    if not remote_sessions:
+        return {"total": 0, "imported": 0, "skipped": 0, "failed": 0,
+                "errors": [], "message": "远程数据库无 session 记录"}
+
+    # 延迟导入避免循环依赖
+    from app.routers.accounts import _import_single_session
+
+    total = len(remote_sessions)
+    imported = 0
+    skipped = 0
+    failed = 0
+    errors = []
+
+    for row in remote_sessions:
+        phone = row.get("phone", "").strip()
+        session_string = row.get("session_string", "").strip()
+        if not phone or not session_string:
+            skipped += 1
+            continue
+
+        result = await _import_single_session(
+            phone=phone,
+            session_string=session_string,
+            api_config_id=api_config_id,
+            proxy_id=proxy_id,
+            db=db,
+            device_model=row.get("device_model", ""),
+            system_version=row.get("system_version", ""),
+            app_version=row.get("app_version", ""),
+        )
+
+        if result["success"]:
+            imported += 1
+        elif "跳过" in result["message"] or "已存在" in result["message"]:
+            skipped += 1
+        else:
+            failed += 1
+            errors.append(result["message"])
+
+    msg = f"远程拉取完成: 共 {total} 条, 导入 {imported}, 跳过 {skipped}, 失败 {failed}"
+    logger.info(msg)
+    return {
+        "total": total,
+        "imported": imported,
+        "skipped": skipped,
+        "failed": failed,
+        "errors": errors[:20],
+        "message": msg,
+    }
+
+
 async def sync_session_to_remote(db: AsyncSession, account_id: str):
     """将账号的 session 同步到 Supabase"""
     supabase = get_supabase()
