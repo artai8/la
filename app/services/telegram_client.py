@@ -47,6 +47,11 @@ class ClientPool:
             return self._clients[account_id]
         return None
 
+    def touch(self, account_id: str):
+        """刷新最后使用时间, 防止被空闲清理踢掉 (不获取客户端)"""
+        if account_id in self._last_used:
+            self._last_used[account_id] = time.time()
+
     async def put(self, account_id: str, client: TelegramClient):
         """放入/更新客户端, 若超出容量则逐出最久未用的"""
         async with self._lock:
@@ -342,3 +347,36 @@ def get_connected_count() -> int:
 async def cleanup_idle_clients():
     """清理空闲超时的客户端（由定时器调用）"""
     await _pool.cleanup_idle()
+
+
+def touch_client(account_id: str):
+    """刷新客户端的最后使用时间, 防止空闲清理断开正在使用的客户端"""
+    _pool.touch(account_id)
+
+
+async def ensure_client_connected(account_id: str, client: TelegramClient | None) -> TelegramClient | None:
+    """确保客户端仍然连接, 如果已断开则尝试重连
+
+    返回可用的客户端, 或 None 表示无法恢复。
+    """
+    if client and client.is_connected():
+        touch_client(account_id)
+        return client
+
+    # 客户端已断开 — 尝试从池中重新获取
+    pool_client = _pool.get(account_id)
+    if pool_client and pool_client.is_connected():
+        return pool_client
+
+    # 尝试重连已有的客户端对象
+    if client:
+        try:
+            await client.connect()
+            if client.is_connected():
+                await _pool.put(account_id, client)
+                logger.info(f"客户端重连成功: {account_id}")
+                return client
+        except Exception as e:
+            logger.warning(f"客户端重连失败: {account_id}: {e}")
+
+    return None
