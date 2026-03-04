@@ -218,6 +218,7 @@ async def scrape_group_members(
 
                 member_data = {
                     "user_id": user.id,
+                    "access_hash": user.access_hash,  # 保存 access_hash 供后续拉人使用
                     "username": user.username or "",
                     "first_name": user.first_name or "",
                     "last_name": user.last_name or "",
@@ -245,6 +246,7 @@ async def scrape_group_members(
                     existing_member = existing.scalar_one_or_none()
                     if existing_member:
                         # 更新
+                        existing_member.access_hash = md.get("access_hash")
                         existing_member.username = md["username"]
                         existing_member.first_name = md["first_name"]
                         existing_member.last_name = md["last_name"]
