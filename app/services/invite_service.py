@@ -5,6 +5,7 @@ import random
 from datetime import datetime
 
 from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.types import InputPeerUser
 from telethon.errors import (
     FloodWaitError,
     UserPrivacyRestrictedError,
@@ -188,6 +189,9 @@ async def _invite_worker(
                 try:
                     if member.username:
                         user_entity = await client.get_entity(member.username)
+                    elif member.access_hash:
+                        # 有 access_hash 时直接构建 InputPeerUser, 无需查找
+                        user_entity = InputPeerUser(member.user_id, member.access_hash)
                     else:
                         user_entity = await client.get_entity(member.user_id)
                 except Exception as e:
