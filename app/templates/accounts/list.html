@@ -108,10 +108,147 @@
     <!-- 操作栏 -->
     <div class="mb-6 flex items-center justify-between">
         <h3 class="text-xl font-semibold">账号列表 ({{ accounts|length }})</h3>
-        <button @click="openLogin()"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
-            ➕ 添加账号
-        </button>
+        <div class="flex items-center space-x-3">
+            <button @click="showImport = true; importTab = 'single'; importMessage = ''"
+                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                📥 导入 Session
+            </button>
+            <button @click="openLogin()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                ➕ 添加账号
+            </button>
+        </div>
+    </div>
+
+    <!-- 导入 Session 模态框 -->
+    <div x-show="showImport" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 w-full max-w-lg">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">📥 导入 Session</h3>
+                <button @click="showImport = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+
+            <!-- Tab 切换 -->
+            <div class="flex space-x-1 mb-4 bg-gray-900 rounded-lg p-1">
+                <button @click="importTab = 'single'" :class="importTab === 'single' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'" class="flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors">单条导入</button>
+                <button @click="importTab = 'batch'" :class="importTab === 'batch' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'" class="flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors">批量导入</button>
+                <button @click="importTab = 'remote'" :class="importTab === 'remote' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'" class="flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors">远程拉取</button>
+            </div>
+
+            <!-- 单条导入 -->
+            <div x-show="importTab === 'single'" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">手机号 (含国际区号)</label>
+                    <input type="text" x-model="importPhone" placeholder="+86xxxxxxxxxxxx"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">API 配置</label>
+                    <select x-model="importApiConfigId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">选择 API 配置</option>
+                        {% for cfg in api_configs %}
+                        <option value="{{ cfg.id }}">{{ cfg.api_id }} - {{ cfg.label or cfg.api_hash[:8] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Session String</label>
+                    <textarea x-model="importSessionStr" rows="3" placeholder="1BQANOTEuMT..."
+                              class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-xs"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">代理 (可选)</label>
+                    <select x-model="importProxyId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">不使用代理</option>
+                        {% for proxy in proxies %}
+                        <option value="{{ proxy.id }}">{{ proxy.protocol|upper }} - {{ proxy.address }}:{{ proxy.port }}
+                            {% if proxy.config_json and proxy.config_json.get('remark') %}({{ proxy.config_json.remark }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button @click="importSingle()" :disabled="importLoading" class="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                    <span x-show="!importLoading">导入</span>
+                    <span x-show="importLoading">导入中...</span>
+                </button>
+            </div>
+
+            <!-- 批量导入 -->
+            <div x-show="importTab === 'batch'" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">API 配置</label>
+                    <select x-model="importApiConfigId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">选择 API 配置</option>
+                        {% for cfg in api_configs %}
+                        <option value="{{ cfg.id }}">{{ cfg.api_id }} - {{ cfg.label or cfg.api_hash[:8] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">代理 (可选)</label>
+                    <select x-model="importProxyId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">不使用代理</option>
+                        {% for proxy in proxies %}
+                        <option value="{{ proxy.id }}">{{ proxy.protocol|upper }} - {{ proxy.address }}:{{ proxy.port }}
+                            {% if proxy.config_json and proxy.config_json.get('remark') %}({{ proxy.config_json.remark }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">每行一条，格式: 手机号:session_string</label>
+                    <textarea x-model="importBatchText" rows="6" placeholder="+8613800001111:1BQANOTEuMT...&#10;+8613800002222:1BQAN..." class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-xs"></textarea>
+                </div>
+                <button @click="importBatch()" :disabled="importLoading" class="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                    <span x-show="!importLoading">批量导入</span>
+                    <span x-show="importLoading">导入中...</span>
+                </button>
+            </div>
+
+            <!-- 远程拉取 -->
+            <div x-show="importTab === 'remote'" class="space-y-4">
+                <div class="p-3 bg-blue-900/30 border border-blue-700/50 rounded-lg text-sm text-blue-300">
+                    💡 从 Supabase 远程数据库的 <code class="font-mono">sessions</code> 表拉取所有 session 并导入。已存在且已激活的账号将被跳过。
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">API 配置 (远程库不存储 API 凭据，需指定)</label>
+                    <select x-model="importApiConfigId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">选择 API 配置</option>
+                        {% for cfg in api_configs %}
+                        <option value="{{ cfg.id }}">{{ cfg.api_id }} - {{ cfg.label or cfg.api_hash[:8] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">代理 (可选，统一分配)</label>
+                    <select x-model="importProxyId" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
+                        <option value="">不使用代理</option>
+                        {% for proxy in proxies %}
+                        <option value="{{ proxy.id }}">{{ proxy.protocol|upper }} - {{ proxy.address }}:{{ proxy.port }}
+                            {% if proxy.config_json and proxy.config_json.get('remark') %}({{ proxy.config_json.remark }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button @click="importRemote()" :disabled="importLoading" class="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                    <span x-show="!importLoading">🔄 一键拉取</span>
+                    <span x-show="importLoading">拉取中...</span>
+                </button>
+            </div>
+
+            <!-- 结果消息 -->
+            <div x-show="importMessage" class="mt-4 p-3 rounded-lg text-sm"
+                 :class="importError ? 'bg-red-900/50 border border-red-700 text-red-300' : 'bg-green-900/50 border border-green-700 text-green-300'">
+                <span x-text="importMessage"></span>
+                <template x-if="importErrors.length > 0">
+                    <ul class="mt-2 text-xs space-y-0.5 max-h-32 overflow-y-auto">
+                        <template x-for="err in importErrors" :key="err">
+                            <li x-text="'• ' + err"></li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+        </div>
     </div>
 
     <!-- 账号列表 -->
@@ -195,6 +332,17 @@
 function accountManager() {
     return {
         showLogin: false,
+        showImport: false,
+        importTab: 'single',
+        importPhone: '',
+        importApiConfigId: '',
+        importSessionStr: '',
+        importProxyId: '',
+        importBatchText: '',
+        importLoading: false,
+        importMessage: '',
+        importError: false,
+        importErrors: [],
         loginStep: 1,
         loginPhone: '',
         loginApiConfigId: '',
@@ -331,6 +479,91 @@ function accountManager() {
             } catch (e) {
                 showToast('检测失败', 'error');
             }
+        },
+
+        // ============ Session 导入 ============
+
+        async importSingle() {
+            if (!this.importPhone || !this.importApiConfigId || !this.importSessionStr) {
+                showToast('请填写手机号、API配置和 Session', 'error');
+                return;
+            }
+            this.importLoading = true;
+            this.importMessage = '';
+            this.importErrors = [];
+            try {
+                const fd = new FormData();
+                fd.append('phone', this.importPhone);
+                fd.append('api_config_id', this.importApiConfigId);
+                fd.append('session_string', this.importSessionStr);
+                fd.append('proxy_id', this.importProxyId);
+                const resp = await fetch('/accounts/import-session', { method: 'POST', body: fd });
+                const data = await resp.json();
+                this.importMessage = data.message;
+                this.importError = !data.success;
+                if (data.success) {
+                    setTimeout(() => location.reload(), 1500);
+                }
+            } catch (e) {
+                this.importMessage = '请求失败: ' + e.message;
+                this.importError = true;
+            }
+            this.importLoading = false;
+        },
+
+        async importBatch() {
+            if (!this.importApiConfigId || !this.importBatchText.trim()) {
+                showToast('请选择 API 配置并填写数据', 'error');
+                return;
+            }
+            this.importLoading = true;
+            this.importMessage = '';
+            this.importErrors = [];
+            try {
+                const fd = new FormData();
+                fd.append('api_config_id', this.importApiConfigId);
+                fd.append('proxy_id', this.importProxyId);
+                fd.append('raw_text', this.importBatchText);
+                const resp = await fetch('/accounts/batch-import-session', { method: 'POST', body: fd });
+                const data = await resp.json();
+                this.importMessage = data.message;
+                this.importError = data.failed > 0 && data.success === 0;
+                this.importErrors = data.errors || [];
+                if (data.success > 0) {
+                    setTimeout(() => location.reload(), 2000);
+                }
+            } catch (e) {
+                this.importMessage = '请求失败: ' + e.message;
+                this.importError = true;
+            }
+            this.importLoading = false;
+        },
+
+        async importRemote() {
+            if (!this.importApiConfigId) {
+                showToast('请选择 API 配置', 'error');
+                return;
+            }
+            this.importLoading = true;
+            this.importMessage = '';
+            this.importErrors = [];
+            try {
+                const fd = new FormData();
+                fd.append('api_config_id', this.importApiConfigId);
+                fd.append('proxy_id', this.importProxyId);
+                const resp = await fetch('/accounts/import-from-remote', { method: 'POST', body: fd });
+                const data = await resp.json();
+                this.importMessage = data.message;
+                this.importError = data.failed > 0 && data.imported === 0;
+                this.importErrors = data.errors || [];
+                if (data.imported > 0) {
+                    setTimeout(() => location.reload(), 2000);
+                }
+            } catch (e) {
+                this.importMessage = '请求失败: ' + e.message;
+                this.importError = true;
+            }
+            this.importLoading = false;
         }
     };
 }
