@@ -70,11 +70,11 @@ def _get_online_status(user) -> tuple[str, datetime | None]:
     """获取用户在线状态和最后上线时间"""
     status = getattr(user, "status", None)
     if isinstance(status, UserStatusOnline):
-        return "online", datetime.now(timezone.utc)
+        return "online", datetime.now(timezone.utc).replace(tzinfo=None)
     elif isinstance(status, UserStatusRecently):
         return "recently", None
     elif isinstance(status, UserStatusOffline):
-        return "offline", status.was_online.replace(tzinfo=timezone.utc) if status.was_online else None
+        return "offline", status.was_online.replace(tzinfo=None) if status.was_online else None
     elif isinstance(status, UserStatusLastWeek):
         return "last_week", None
     elif isinstance(status, UserStatusLastMonth):
@@ -88,7 +88,7 @@ def _should_filter_by_online(online_status: str, last_online: datetime | None, f
     if filter_value == "none":
         return False  # 不过滤
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     thresholds = {
         "1d": timedelta(days=1),
         "3d": timedelta(days=3),
