@@ -128,6 +128,7 @@ class ScrapedMember(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     user_id = Column(BigInteger, nullable=False)
+    access_hash = Column(BigInteger, nullable=True)  # Telegram access_hash, 用于无 username 用户的 InputPeerUser
     username = Column(String(128), default="")
     first_name = Column(String(128), default="")
     last_name = Column(String(128), default="")
