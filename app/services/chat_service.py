@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 from app.models import ScrapedMessage, Group, TaskLog
-from app.services.telegram_client import get_client
+from app.services.telegram_client import get_client, touch_client, ensure_client_connected
 from app.services.scrape_service import resolve_group
 from app.services.circuit_breaker import circuit_breaker
 from app.services.account_scheduler import record_operation, record_flood_wait, record_peer_flood
@@ -152,6 +152,15 @@ async def _send_worker(
                            "熔断器已开启, 停止发送")
                 break
 
+            # 每次操作前确保客户端仍然连接
+            client = await ensure_client_connected(account_id, client)
+            if not client:
+                await _log(db, task_id, account_id, "ERROR",
+                           "客户端连接已断开且无法重连, 停止发送")
+                async with results_lock:
+                    results["errors"].append(f"账号 {account_id} 连接断开")
+                break
+
             # 再次检查是否已被其他账号发送
             await db.refresh(msg)
             if msg.is_sent:
@@ -225,7 +234,13 @@ async def _send_worker(
             jitter = base_delay * random.uniform(-0.3, 0.3)
             delay = max(10, base_delay + jitter)
             await _log(db, task_id, account_id, "DEBUG", f"等待 {delay:.0f} 秒...")
-            await asyncio.sleep(delay)
+            # 分段 sleep, 每 60 秒刷新一次 last_used 防止被空闲清理断开
+            remaining = delay
+            while remaining > 0:
+                chunk = min(remaining, 60)
+                await asyncio.sleep(chunk)
+                touch_client(account_id)
+                remaining -= chunk
 
         async with results_lock:
             results["account_results"][account_id] = {
