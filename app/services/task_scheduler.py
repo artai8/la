@@ -11,7 +11,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Task, TaskLog
+from app.models import Task, TaskLog, Account, TelegramApiConfig
 from app.database import async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,31 @@ async def _update_progress(task_id: str, progress: dict, db: AsyncSession):
         update(Task).where(Task.id == task_id).values(progress_json=progress)
     )
     await db.commit()
+
+
+async def _ensure_task_clients(account_ids: list[str], db: AsyncSession):
+    """确保定时任务的账号客户端已连接（与 operations.py._ensure_clients 相同逻辑）"""
+    from app.services import telegram_client as tc
+
+    for aid in account_ids:
+        if tc.get_client(aid):
+            continue
+        acc_result = await db.execute(select(Account).where(Account.id == aid))
+        account = acc_result.scalar_one_or_none()
+        if not account or not account.session_string:
+            continue
+        api_result = await db.execute(
+            select(TelegramApiConfig).where(TelegramApiConfig.id == account.api_config_id)
+        )
+        api_config = api_result.scalar_one_or_none()
+        if api_config:
+            await tc.restore_session(
+                account.id, api_config.api_id, api_config.api_hash,
+                account.session_string, account.device_model,
+                account.system_version, account.app_version,
+                account.lang_code, account.system_lang_code,
+                account.proxy_id,
+            )
 
 
 async def _execute_task(task_id: str):
@@ -74,6 +99,9 @@ async def _execute_task(task_id: str):
         try:
             config = task.config_json or {}
             account_ids = task.account_ids or []
+
+            # 确保所有账号客户端已连接
+            await _ensure_task_clients(account_ids, db)
 
             if task.task_type == "scrape_members":
                 from app.services.scrape_service import scrape_group_members
@@ -116,34 +144,54 @@ async def _execute_task(task_id: str):
 
             elif task.task_type == "invite":
                 from app.services.invite_service import invite_members
+                from app.services.account_scheduler import select_accounts_for_invite
                 target_groups = config.get("target_groups", "").strip().splitlines()
                 source_group_ids = config.get("source_group_ids", [])
+                # 智能筛选可用账号（排除冷却/超限/新号）
+                per_limit = config.get("per_account_limit", 5)
+                eligible = await select_accounts_for_invite(account_ids, per_limit * len(account_ids), db)
+                filtered_ids = [acc.id for acc in eligible] if eligible else account_ids
+                if not filtered_ids:
+                    logger.warning(f"任务 {task.name}: 所有账号均在冷却/超限中")
+                    filtered_ids = account_ids  # 回退到全部
+                # 确保客户端已连接
+                await _ensure_task_clients(filtered_ids, db)
                 await invite_members(
-                    account_ids=account_ids,
+                    account_ids=filtered_ids,
                     source_group_ids=source_group_ids,
                     target_group_inputs=target_groups,
                     db=db,
                     delay_min=config.get("delay_min", 300),
                     delay_max=config.get("delay_max", 600),
                     concurrency=config.get("concurrency", 1),
-                    per_account_limit=config.get("per_account_limit", 5),
+                    per_account_limit=per_limit,
                     use_remote_db=config.get("use_remote_db", False),
                     task_id=task_id,
                 )
 
             elif task.task_type == "chat":
                 from app.services.chat_service import send_messages
+                from app.services.account_scheduler import select_accounts_for_chat
                 target_groups = config.get("target_groups", "").strip().splitlines()
                 source_group_ids = config.get("source_group_ids", [])
+                # 智能筛选可用账号
+                per_limit = config.get("per_account_limit", 10)
+                eligible = await select_accounts_for_chat(account_ids, per_limit * len(account_ids), db)
+                filtered_ids = [acc.id for acc in eligible] if eligible else account_ids
+                if not filtered_ids:
+                    logger.warning(f"任务 {task.name}: 所有账号均在冷却/超限中")
+                    filtered_ids = account_ids
+                # 确保客户端已连接
+                await _ensure_task_clients(filtered_ids, db)
                 await send_messages(
-                    account_ids=account_ids,
+                    account_ids=filtered_ids,
                     source_group_ids=source_group_ids,
                     target_group_inputs=target_groups,
                     db=db,
                     delay_min=config.get("delay_min", 300),
                     delay_max=config.get("delay_max", 600),
                     concurrency=config.get("concurrency", 5),
-                    per_account_limit=config.get("per_account_limit", 10),
+                    per_account_limit=per_limit,
                     task_id=task_id,
                 )
 
