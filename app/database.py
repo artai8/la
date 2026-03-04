@@ -1,6 +1,7 @@
 """数据库连接 - 本地 PostgreSQL + Supabase 远程"""
 import asyncio
 import logging
+import sqlalchemy
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from supabase import create_client, Client as SupabaseClient
 
@@ -29,6 +30,29 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
+async def _migrate_new_columns():
+    """自动为已存在的表添加缺失的新列（简易迁移）"""
+    migrations = [
+        # (表名, 列名, SQL 类型)
+        ("scraped_members", "access_hash", "BIGINT"),
+    ]
+    async with engine.begin() as conn:
+        for table, column, col_type in migrations:
+            # 检查列是否已存在
+            result = await conn.execute(
+                sqlalchemy.text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = :table AND column_name = :column"
+                ),
+                {"table": table, "column": column},
+            )
+            if not result.fetchone():
+                await conn.execute(
+                    sqlalchemy.text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                )
+                logger.info(f"数据库迁移: 为 {table} 添加了 {column} 列")
+
+
 async def init_db(max_retries: int = 10, base_delay: float = 2.0):
     """初始化数据库表（带重试，等待 PostgreSQL 就绪）"""
     from app.models import Base
@@ -37,6 +61,8 @@ async def init_db(max_retries: int = 10, base_delay: float = 2.0):
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+            # 自动补齐新增字段（create_all 不会为已存在的表添加列)
+            await _migrate_new_columns()
             logger.info("数据库表初始化完成")
             return
         except Exception as e:
