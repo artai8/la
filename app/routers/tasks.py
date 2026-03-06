@@ -62,6 +62,16 @@ async def create_task(
     concurrency: int = Form(1),
     per_account_limit: int = Form(5),
     source_group_ids: list[str] = Form([]),
+    # 流水线专用参数
+    invite_delay_min: int = Form(300),
+    invite_delay_max: int = Form(600),
+    invite_per_account_limit: int = Form(5),
+    chat_delay_min: int = Form(300),
+    chat_delay_max: int = Form(600),
+    chat_per_account_limit: int = Form(10),
+    phase_delay: int = Form(60),
+    pipeline_concurrency: int = Form(3),
+    use_remote_db: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
     type_names = {
@@ -71,25 +81,42 @@ async def create_task(
         "chat": "群聊发送",
         "nurture": "养号",
         "check_restriction": "检测限制",
+        "pipeline": "流水线(拉人+群聊)",
     }
     if not name:
         name = type_names.get(task_type, task_type)
 
-    config = {
-        "group_inputs": group_inputs,
-        "target_groups": target_groups,
-        "filter_admins": filter_admins,
-        "filter_bots": filter_bots,
-        "online_filter": online_filter,
-        "save_local": save_local,
-        "save_remote": save_remote,
-        "message_limit": message_limit,
-        "delay_min": delay_min,
-        "delay_max": delay_max,
-        "concurrency": concurrency,
-        "per_account_limit": per_account_limit,
-        "source_group_ids": source_group_ids,
-    }
+    # 根据任务类型构建配置
+    if task_type == "pipeline":
+        config = {
+            "source_group_ids": source_group_ids,
+            "target_groups": target_groups,
+            "invite_delay_min": invite_delay_min,
+            "invite_delay_max": invite_delay_max,
+            "invite_per_account_limit": invite_per_account_limit,
+            "chat_delay_min": chat_delay_min,
+            "chat_delay_max": chat_delay_max,
+            "chat_per_account_limit": chat_per_account_limit,
+            "phase_delay": phase_delay,
+            "pipeline_concurrency": pipeline_concurrency,
+            "use_remote_db": use_remote_db,
+        }
+    else:
+        config = {
+            "group_inputs": group_inputs,
+            "target_groups": target_groups,
+            "filter_admins": filter_admins,
+            "filter_bots": filter_bots,
+            "online_filter": online_filter,
+            "save_local": save_local,
+            "save_remote": save_remote,
+            "message_limit": message_limit,
+            "delay_min": delay_min,
+            "delay_max": delay_max,
+            "concurrency": concurrency,
+            "per_account_limit": per_account_limit,
+            "source_group_ids": source_group_ids,
+        }
 
     task = Task(
         name=name,
