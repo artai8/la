@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 
 from app.database import get_db
-from app.models import Task, Account, Group, ScrapedMember
+from app.models import Task, Account, Group, ScrapedMember, TaskLog
 from app.services.task_scheduler import register_task, unregister_task
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,10 @@ async def trigger_task(
 
 @router.post("/delete/{task_id}")
 async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    from app.models import TaskLog
     unregister_task(task_id)
+    # 先删除关联的日志记录，避免外键约束冲突
+    await db.execute(delete(TaskLog).where(TaskLog.task_id == task_id))
     await db.execute(delete(Task).where(Task.id == task_id))
     await db.commit()
     return RedirectResponse("/tasks", status_code=303)
