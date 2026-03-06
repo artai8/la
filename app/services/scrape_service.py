@@ -24,12 +24,22 @@ from telethon.errors import FloodWaitError, ChatAdminRequiredError, ChannelPriva
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models import Group, ScrapedMember, ScrapedMessage, TaskLog, KeywordBlacklist
 from app.services.telegram_client import get_client
 from app.database import get_supabase
 
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_naive(dt: datetime | None) -> datetime | None:
+    """将 datetime 统一为 UTC naive，兼容 TIMESTAMP WITHOUT TIME ZONE。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def parse_group_identifier(text: str) -> str:
@@ -74,7 +84,7 @@ def _get_online_status(user) -> tuple[str, datetime | None]:
     elif isinstance(status, UserStatusRecently):
         return "recently", None
     elif isinstance(status, UserStatusOffline):
-        return "offline", status.was_online.replace(tzinfo=None) if status.was_online else None
+        return "offline", _to_utc_naive(status.was_online) if status.was_online else None
     elif isinstance(status, UserStatusLastWeek):
         return "last_week", None
     elif isinstance(status, UserStatusLastMonth):
@@ -404,7 +414,7 @@ async def scrape_group_messages(
                     "sender_id": sender.id if sender else None,
                     "sender_username": getattr(sender, "username", "") or "",
                     "text": message.text,
-                    "date": message.date,
+                    "date": _to_utc_naive(message.date),
                     "scraped_by": account_id,
                 }
                 messages_data.append(msg_data)
@@ -484,6 +494,18 @@ async def _log(db: AsyncSession, task_id: str | None, account_id: str, module: s
         level=level,
         message=message,
     )
-    db.add(log_entry)
-    await db.commit()
+
+    # 采集写库失败后 session 可能处于 PendingRollback，先回滚再尝试写日志。
+    try:
+        db.add(log_entry)
+        await db.commit()
+    except SQLAlchemyError:
+        await db.rollback()
+        try:
+            db.add(log_entry)
+            await db.commit()
+        except SQLAlchemyError as e:
+            await db.rollback()
+            logger.warning(f"日志写入数据库失败，已降级为控制台日志: {e}")
+
     logger.log(getattr(logging, level, logging.INFO), f"[{module}] {message}")
