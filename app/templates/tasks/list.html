@@ -26,6 +26,7 @@
                     <option value="chat">群发消息</option>
                     <option value="nurture">自动养号</option>
                     <option value="check_restriction">限制检测</option>
+                    <option value="pipeline">流水线(拉人+群聊)</option>
                 </select>
             </div>
             <div>
@@ -277,6 +278,102 @@
                     </div>
                 </div>
             </template>
+
+            <!-- ====== 流水线(拉人+群聊) ====== -->
+            <template x-if="form.task_type === 'pipeline'">
+                <div class="space-y-4 lg:col-span-2">
+                    <!-- 共享：来源群组 & 目标群组 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-1">来源群组 (已采集成员)</label>
+                            <div class="max-h-28 overflow-y-auto bg-gray-900/50 rounded-lg p-2 border border-gray-700 space-y-1">
+                                {% for group, count in groups_with_counts %}
+                                <label class="flex items-center space-x-2 cursor-pointer hover:bg-gray-700/50 px-2 py-0.5 rounded">
+                                    <input type="checkbox" value="{{ group.id }}" x-model="form.source_group_ids"
+                                           class="rounded border-gray-600 text-blue-500 focus:ring-blue-500 bg-gray-800">
+                                    <span class="text-xs text-gray-300">{{ group.title }} <span class="text-gray-500">({{ count }}人)</span></span>
+                                </label>
+                                {% endfor %}
+                                {% if not groups_with_counts %}
+                                <span class="text-gray-500 text-xs">暂无已采集群组</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-1">目标群组 (每行一个)</label>
+                            <textarea x-model="form.target_groups" rows="3" placeholder="@target_group"
+                                      class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 font-mono text-xs"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- 阶段一: 拉人入群 -->
+                    <div class="bg-gray-900/40 rounded-lg p-4 border border-gray-700">
+                        <h4 class="text-sm font-semibold text-green-400 mb-3">📥 阶段一: 拉人入群</h4>
+                        <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">最小延迟 (秒)</label>
+                                <input type="number" x-model.number="form.invite_delay_min" min="5" max="900"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">最大延迟 (秒)</label>
+                                <input type="number" x-model.number="form.invite_delay_max" min="10" max="1800"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">每账号拉人限额</label>
+                                <input type="number" x-model.number="form.invite_per_account_limit" min="1" max="200"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <label class="inline-flex items-center space-x-2 mt-2">
+                            <input type="checkbox" x-model="form.use_remote_db" class="rounded border-gray-600 text-blue-500 focus:ring-blue-500 bg-gray-800">
+                            <span class="text-xs text-gray-300">使用远程数据库成员</span>
+                        </label>
+                    </div>
+
+                    <!-- 阶段二: 群发消息 -->
+                    <div class="bg-gray-900/40 rounded-lg p-4 border border-gray-700">
+                        <h4 class="text-sm font-semibold text-purple-400 mb-3">💬 阶段二: 群发消息</h4>
+                        <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">最小延迟 (秒)</label>
+                                <input type="number" x-model.number="form.chat_delay_min" min="5" max="900"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">最大延迟 (秒)</label>
+                                <input type="number" x-model.number="form.chat_delay_max" min="10" max="1800"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">每账号发送限额</label>
+                                <input type="number" x-model.number="form.chat_per_account_limit" min="1" max="500"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 流水线设置 -->
+                    <div class="bg-gray-900/40 rounded-lg p-4 border border-gray-700">
+                        <h4 class="text-sm font-semibold text-indigo-400 mb-3">⚙️ 流水线设置</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">并发账号数</label>
+                                <input type="number" x-model.number="form.pipeline_concurrency" min="1" max="20"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                                <span class="text-xs text-gray-500">同时执行流水线的账号数量</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-400 mb-1">阶段间休息 (秒)</label>
+                                <input type="number" x-model.number="form.phase_delay" min="0" max="3600"
+                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm focus:ring-2 focus:ring-blue-500">
+                                <span class="text-xs text-gray-500">每个账号拉人完成后休息再群聊</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <!-- 创建按钮 -->
@@ -326,14 +423,16 @@
                                 'invite': '邀请入群',
                                 'chat': '群发消息',
                                 'nurture': '自动养号',
-                                'check_restriction': '限制检测'
-                            } %}
+                            'check_restriction': '限制检测',
+                            'pipeline': '流水线'
+                        } %}
                             <span class="px-2 py-0.5 rounded text-xs font-medium
                                 {% if task.task_type == 'scrape_members' %}bg-blue-900/50 text-blue-300
                                 {% elif task.task_type == 'scrape_messages' %}bg-cyan-900/50 text-cyan-300
                                 {% elif task.task_type == 'invite' %}bg-green-900/50 text-green-300
                                 {% elif task.task_type == 'nurture' %}bg-amber-900/50 text-amber-300
                                 {% elif task.task_type == 'check_restriction' %}bg-rose-900/50 text-rose-300
+                                {% elif task.task_type == 'pipeline' %}bg-indigo-900/50 text-indigo-300
                                 {% else %}bg-purple-900/50 text-purple-300{% endif %}">
                                 {{ type_labels.get(task.task_type, task.task_type) }}
                             </span>
@@ -400,6 +499,7 @@ function tasksPage() {
             chat: '群发消息',
             nurture: '自动养号',
             check_restriction: '限制检测',
+            pipeline: '流水线(拉人+群聊)',
         },
         form: {
             name: '',
@@ -422,6 +522,15 @@ function tasksPage() {
             concurrency: 2,
             per_account_limit: 40,
             use_remote_db: false,
+            // 流水线专用
+            invite_delay_min: 300,
+            invite_delay_max: 600,
+            invite_per_account_limit: 5,
+            chat_delay_min: 300,
+            chat_delay_max: 600,
+            chat_per_account_limit: 10,
+            phase_delay: 60,
+            pipeline_concurrency: 3,
         },
         creating: false,
         formMessage: '',
@@ -472,6 +581,18 @@ function tasksPage() {
                     if (t === 'invite') {
                         fd.append('use_remote_db', this.form.use_remote_db);
                     }
+                } else if (t === 'pipeline') {
+                    this.form.source_group_ids.forEach(id => fd.append('source_group_ids', id));
+                    fd.append('target_groups', this.form.target_groups);
+                    fd.append('invite_delay_min', this.form.invite_delay_min);
+                    fd.append('invite_delay_max', this.form.invite_delay_max);
+                    fd.append('invite_per_account_limit', this.form.invite_per_account_limit);
+                    fd.append('chat_delay_min', this.form.chat_delay_min);
+                    fd.append('chat_delay_max', this.form.chat_delay_max);
+                    fd.append('chat_per_account_limit', this.form.chat_per_account_limit);
+                    fd.append('phase_delay', this.form.phase_delay);
+                    fd.append('pipeline_concurrency', this.form.pipeline_concurrency);
+                    fd.append('use_remote_db', this.form.use_remote_db);
                 } else if (t === 'nurture' || t === 'check_restriction') {
                     fd.append('concurrency', this.form.concurrency);
                 }
