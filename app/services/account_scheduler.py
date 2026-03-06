@@ -89,6 +89,21 @@ def _is_new_account(account: Account, now: datetime) -> bool:
     return True
 
 
+def _is_recent_peer_flood(account: Account, now: datetime) -> bool:
+    """最近触发过 PeerFlood 的账号临时降权，避免刚解封后再次触发。"""
+    details = account.restriction_details or {}
+    ts = details.get("last_peer_flood_at") if isinstance(details, dict) else None
+    if not ts:
+        return False
+    try:
+        last_pf = datetime.fromisoformat(ts)
+    except Exception:
+        return False
+
+    shield_seconds = int(getattr(settings, "PEER_FLOOD_RECOVERY_SHIELD", 172800))
+    return (now - last_pf).total_seconds() < shield_seconds
+
+
 async def select_accounts_for_invite(
     candidate_ids: list[str],
     needed: int,
@@ -115,6 +130,9 @@ async def select_accounts_for_invite(
             await _reset_daily_if_needed(acc, now)
             if _is_in_cooldown(acc, now):
                 logger.debug(f"跳过冷却中账号: {acc.phone}")
+                continue
+            if _is_recent_peer_flood(acc, now):
+                logger.debug(f"跳过近期 PeerFlood 账号: {acc.phone}")
                 continue
             if _is_new_account(acc, now):
                 logger.debug(f"跳过新号养号期: {acc.phone}")
@@ -199,7 +217,7 @@ async def record_flood_wait(account_id: str, wait_seconds: int):
 
 
 async def record_peer_flood(account_id: str):
-    """PeerFloodError → 强制冷却 24 小时 + 大幅扣分"""
+    """PeerFloodError → 阶梯冷却 + 大幅扣分"""
     async with async_session_factory() as db:
         result = await db.execute(select(Account).where(Account.id == account_id))
         account = result.scalar_one_or_none()
@@ -207,12 +225,32 @@ async def record_peer_flood(account_id: str):
             return
 
         account.peer_flood_count = (account.peer_flood_count or 0) + 1
-        account.health_score = max(0, (account.health_score or 100) - 20)
-        account.cooldown_until = datetime.utcnow() + timedelta(seconds=settings.COOLDOWN_PEER_FLOOD)
+        pf_count = account.peer_flood_count
+
+        # 累积违规按次数升级: 24h -> 48h -> 72h(封顶)
+        cooldown_secs = int(settings.COOLDOWN_PEER_FLOOD)
+        if pf_count == 2:
+            cooldown_secs = max(cooldown_secs, 48 * 3600)
+        elif pf_count >= 3:
+            cooldown_secs = max(cooldown_secs, 72 * 3600)
+
+        penalty = min(35, 20 + (pf_count - 1) * 5)
+        account.health_score = max(0, (account.health_score or 100) - penalty)
+        account.cooldown_until = datetime.utcnow() + timedelta(seconds=cooldown_secs)
+        details = account.restriction_details or {}
+        if not isinstance(details, dict):
+            details = {}
+        details.update({
+            "last_peer_flood_at": datetime.utcnow().isoformat(),
+            "peer_flood_count": pf_count,
+            "peer_flood_cooldown_seconds": cooldown_secs,
+        })
+        account.restriction_details = details
         await db.commit()
 
         logger.error(
-            f"PeerFlood → 账号 {account.phone} 冷却 24h (health={account.health_score})"
+            f"PeerFlood #{pf_count} → 账号 {account.phone} 冷却 {cooldown_secs // 3600}h "
+            f"(health={account.health_score})"
         )
 
 
