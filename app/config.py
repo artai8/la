@@ -61,6 +61,7 @@ class AppSettings:
     COOLDOWN_FLOOD_2: int = 7200    # 第2次: 2小时
     COOLDOWN_FLOOD_3: int = 86400   # 第3次: 24小时
     COOLDOWN_PEER_FLOOD: int = 86400  # PeerFlood: 24小时
+    PEER_FLOOD_RECOVERY_SHIELD: int = int(os.getenv("PEER_FLOOD_RECOVERY_SHIELD", "172800"))
 
     # --- 全局熔断 ---
     CIRCUIT_BREAKER_THRESHOLD: int = 3     # 10分钟内 N 个账号 PeerFlood 则全局暂停
