@@ -13,7 +13,8 @@ from telethon.errors import (
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, update
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models import ScrapedMessage, Group, TaskLog
 from app.services.telegram_client import get_client, touch_client, ensure_client_connected
@@ -33,9 +34,49 @@ async def _log(db: AsyncSession, task_id: str | None, account_id: str, level: st
         level=level,
         message=message,
     )
-    db.add(log_entry)
-    await db.commit()
+    try:
+        db.add(log_entry)
+        await db.commit()
+    except SQLAlchemyError:
+        await db.rollback()
+        logger.warning("chat 日志写入数据库失败，已降级到控制台日志")
     logger.log(getattr(logging, level, logging.INFO), f"[chat] {message}")
+
+
+async def _claim_messages(
+    source_group_ids: list[str],
+    limit: int,
+    account_id: str,
+) -> list[dict]:
+    """
+    用独立事务 + FOR UPDATE SKIP LOCKED 原子领取消息，
+    防止多 worker 拿到同一条。
+    返回 [{id, text}, ...] 已被标记 is_sent=True 的消息。
+    """
+    claimed: list[dict] = []
+    async with async_session_factory() as session:
+        # FOR UPDATE SKIP LOCKED 确保已被其他 worker 锁定的行直接跳过
+        stmt = (
+            select(ScrapedMessage)
+            .where(
+                and_(
+                    ScrapedMessage.group_id.in_(source_group_ids),
+                    ScrapedMessage.is_sent == False,
+                )
+            )
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+        for row in rows:
+            if row.text:
+                row.is_sent = True
+                claimed.append({"id": row.id, "text": row.text})
+
+        await session.commit()
+    return claimed
 
 
 async def send_messages(
@@ -130,22 +171,14 @@ async def _send_worker(
             await _log(db, task_id, account_id, "ERROR", "没有有效的目标群组")
             return
 
-        # 获取未发送的消息
-        query = select(ScrapedMessage).where(
-            and_(
-                ScrapedMessage.group_id.in_(source_group_ids),
-                ScrapedMessage.is_sent == False,
-            )
-        ).limit(per_account_limit)
+        # 用 FOR UPDATE SKIP LOCKED 原子领取消息，确保多 worker 不拿同一条
+        claimed = await _claim_messages(source_group_ids, per_account_limit, account_id)
 
-        result = await db.execute(query)
-        messages = result.scalars().all()
-
-        if not messages:
+        if not claimed:
             await _log(db, task_id, account_id, "INFO", "没有待发送的消息")
             return
 
-        for msg in messages:
+        for msg_item in claimed:
             # 每次操作前检查熔断器
             if circuit_breaker.is_open():
                 await _log(db, task_id, account_id, "WARNING",
@@ -161,14 +194,7 @@ async def _send_worker(
                     results["errors"].append(f"账号 {account_id} 连接断开")
                 break
 
-            # 再次检查是否已被其他账号发送
-            await db.refresh(msg)
-            if msg.is_sent:
-                continue
-
-            text = msg.text
-            if not text:
-                continue
+            text = msg_item["text"]
 
             success_any = False
             for target_entity in target_entities:
@@ -216,7 +242,6 @@ async def _send_worker(
                                f"发送消息失败: {e}")
 
             if success_any:
-                msg.is_sent = True
                 sent_count += 1
                 # 记录到 account_scheduler
                 await record_operation(account_id, "chat")
@@ -226,8 +251,6 @@ async def _send_worker(
                 failed_count += 1
                 async with results_lock:
                     results["total_failed"] = results.get("total_failed", 0) + 1
-
-            await db.commit()
 
             # 延迟 + 随机抖动 (±30%)
             base_delay = random.uniform(delay_min, delay_max)
