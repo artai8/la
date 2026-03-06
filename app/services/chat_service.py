@@ -13,7 +13,7 @@ from telethon.errors import (
 )
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, update
+from sqlalchemy import select, and_, update, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models import ScrapedMessage, Group, TaskLog
@@ -64,6 +64,7 @@ async def _claim_messages(
                     ScrapedMessage.is_sent == False,
                 )
             )
+            .order_by(func.random())
             .limit(limit)
             .with_for_update(skip_locked=True)
         )
