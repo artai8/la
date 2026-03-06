@@ -21,13 +21,15 @@ from telethon.errors import (
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, update
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.models import ScrapedMember, Group, TaskLog
+from app.models import ScrapedMember, Group, TaskLog, Account
 from app.services.telegram_client import get_client, touch_client, ensure_client_connected
 from app.services.scrape_service import resolve_group
 from app.services.circuit_breaker import circuit_breaker
 from app.services.account_scheduler import record_operation, record_flood_wait, record_peer_flood
 from app.database import get_supabase, async_session_factory
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,13 @@ async def _log(db: AsyncSession, task_id: str | None, account_id: str, level: st
         level=level,
         message=message,
     )
-    db.add(log_entry)
-    await db.commit()
+    try:
+        db.add(log_entry)
+        await db.commit()
+    except SQLAlchemyError:
+        await db.rollback()
+        logger.warning("invite 日志写入数据库失败，已降级到控制台日志")
+
     logger.log(getattr(logging, level, logging.INFO), f"[invite] {message}")
 
 
@@ -85,6 +92,12 @@ async def invite_members(
     }
     results_lock = asyncio.Lock()
 
+    # 参数安全兜底，避免外部传入过于激进的值触发风控。
+    concurrency = max(1, concurrency)
+    per_account_limit = max(1, per_account_limit)
+    delay_min = max(60, delay_min)
+    delay_max = max(delay_min, delay_max)
+
     semaphore = asyncio.Semaphore(concurrency)
 
     async def _worker(account_id: str):
@@ -123,9 +136,38 @@ async def _invite_worker(
     async with async_session_factory() as db:
         invited_count = 0
         failed_count = 0
+        delay_scale = 1.0
+
+        # 风险分级: PeerFlood 次数越多, 每账号上限越低、间隔越长。
+        account_result = await db.execute(select(Account).where(Account.id == account_id))
+        account = account_result.scalar_one_or_none()
+        peer_flood_count = int(getattr(account, "peer_flood_count", 0) or 0)
+        health_score = float(getattr(account, "health_score", 100.0) or 100.0)
+
+        effective_limit = per_account_limit
+        effective_delay_min = delay_min
+        effective_delay_max = delay_max
+
+        if peer_flood_count >= 1 or health_score < 85:
+            effective_limit = min(effective_limit, 3)
+            effective_delay_min = max(effective_delay_min, 600)
+            effective_delay_max = max(effective_delay_max, 900)
+        if peer_flood_count >= 2 or health_score < 70:
+            effective_limit = min(effective_limit, 1)
+            effective_delay_min = max(effective_delay_min, 900)
+            effective_delay_max = max(effective_delay_max, 1500)
 
         await _log(db, task_id, account_id, "INFO",
-                   f"开始拉人任务, 目标拉取 {per_account_limit} 人")
+                   f"开始拉人任务, 目标拉取 {effective_limit} 人")
+        if effective_limit != per_account_limit or effective_delay_min != delay_min or effective_delay_max != delay_max:
+            await _log(
+                db,
+                task_id,
+                account_id,
+                "INFO",
+                f"风控降速已生效: per_account_limit={effective_limit}, delay={effective_delay_min}-{effective_delay_max}s, "
+                f"peer_flood_count={peer_flood_count}, health={health_score:.1f}",
+            )
 
         # 解析目标群组
         target_entities = []
@@ -152,7 +194,7 @@ async def _invite_worker(
                 ScrapedMember.is_bot == False,
                 ScrapedMember.is_admin == False,
             )
-        ).limit(per_account_limit)
+        ).limit(effective_limit)
 
         result = await db.execute(query)
         members = result.scalars().all()
@@ -270,6 +312,8 @@ async def _invite_worker(
                         await _log(db, task_id, account_id, "WARNING",
                                    f"FloodWait: 等待 {e.seconds} 秒")
                         await record_flood_wait(account_id, e.seconds)
+                        # 连续触发 FloodWait 后继续放慢节奏。
+                        delay_scale = min(2.5, delay_scale * 1.5)
                         await asyncio.sleep(e.seconds)
 
                 if success_any:
@@ -290,9 +334,9 @@ async def _invite_worker(
                 await db.commit()
 
                 # 延迟 + 随机抖动 (±30%)
-                base_delay = random.uniform(delay_min, delay_max)
+                base_delay = random.uniform(effective_delay_min, effective_delay_max)
                 jitter = base_delay * random.uniform(-0.3, 0.3)
-                delay = max(10, base_delay + jitter)
+                delay = max(10, (base_delay + jitter) * delay_scale)
                 await _log(db, task_id, account_id, "DEBUG", f"等待 {delay:.0f} 秒...")
                 # 分段 sleep, 每 60 秒刷新一次 last_used 防止被空闲清理断开
                 remaining = delay
