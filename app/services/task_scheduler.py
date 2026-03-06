@@ -227,6 +227,103 @@ async def _execute_task(task_id: str):
                     if i < len(account_ids) - 1:
                         await asyncio.sleep(5)
 
+            elif task.task_type == "pipeline":
+                # 流水线任务：每个账号独立执行「拉人→休息→群聊」，账号间并行
+                from app.services.invite_service import invite_members
+                from app.services.chat_service import send_messages
+                from app.services.account_scheduler import select_accounts_for_invite, select_accounts_for_chat
+
+                target_groups = config.get("target_groups", "").strip().splitlines()
+                source_group_ids = config.get("source_group_ids", [])
+                phase_delay = config.get("phase_delay", 60)
+                pipeline_concurrency = config.get("pipeline_concurrency", 3)
+
+                # 拉人阶段配置
+                inv_delay_min = config.get("invite_delay_min", 300)
+                inv_delay_max = config.get("invite_delay_max", 600)
+                inv_limit = config.get("invite_per_account_limit", 5)
+                use_remote = config.get("use_remote_db", False)
+
+                # 群聊阶段配置
+                chat_delay_min = config.get("chat_delay_min", 300)
+                chat_delay_max = config.get("chat_delay_max", 600)
+                chat_limit = config.get("chat_per_account_limit", 10)
+
+                pipeline_progress = {}
+                sem = asyncio.Semaphore(pipeline_concurrency)
+
+                async def _pipeline_worker(aid: str):
+                    """单个账号的流水线：拉人 → 休息 → 群聊"""
+                    async with sem:
+                        result_entry = {"phase": "invite", "invite_result": None, "chat_result": None, "error": None}
+                        pipeline_progress[aid] = result_entry
+                        try:
+                            # ---- 阶段 1: 拉人 ----
+                            if await _check_cancelled(task_id, db):
+                                result_entry["phase"] = "cancelled"
+                                return
+                            await _ensure_task_clients([aid], db)
+                            inv_result = await invite_members(
+                                account_ids=[aid],
+                                source_group_ids=source_group_ids,
+                                target_group_inputs=target_groups,
+                                db=db,
+                                delay_min=inv_delay_min,
+                                delay_max=inv_delay_max,
+                                concurrency=1,
+                                per_account_limit=inv_limit,
+                                use_remote_db=use_remote,
+                                task_id=task_id,
+                            )
+                            result_entry["invite_result"] = {
+                                "invited": inv_result.get("total_invited", 0),
+                                "failed": inv_result.get("total_failed", 0),
+                            }
+                            result_entry["phase"] = "phase_delay"
+                            await _update_progress(task_id, pipeline_progress, db)
+                            logger.info(f"流水线账号 {aid} 拉人完成, 休息 {phase_delay}s")
+
+                            # ---- 阶段间休息 ----
+                            if await _check_cancelled(task_id, db):
+                                result_entry["phase"] = "cancelled"
+                                return
+                            await asyncio.sleep(phase_delay)
+
+                            # ---- 阶段 2: 群聊 ----
+                            result_entry["phase"] = "chat"
+                            await _update_progress(task_id, pipeline_progress, db)
+                            if await _check_cancelled(task_id, db):
+                                result_entry["phase"] = "cancelled"
+                                return
+                            await _ensure_task_clients([aid], db)
+                            chat_result = await send_messages(
+                                account_ids=[aid],
+                                source_group_ids=source_group_ids,
+                                target_group_inputs=target_groups,
+                                db=db,
+                                delay_min=chat_delay_min,
+                                delay_max=chat_delay_max,
+                                concurrency=1,
+                                per_account_limit=chat_limit,
+                                task_id=task_id,
+                            )
+                            result_entry["chat_result"] = {
+                                "sent": chat_result.get("total_sent", 0),
+                                "failed": chat_result.get("total_failed", 0),
+                            }
+                            result_entry["phase"] = "done"
+                            logger.info(f"流水线账号 {aid} 群聊完成")
+                        except Exception as e:
+                            result_entry["error"] = str(e)
+                            result_entry["phase"] = "error"
+                            logger.error(f"流水线账号 {aid} 执行失败: {e}")
+                        finally:
+                            await _update_progress(task_id, pipeline_progress, db)
+
+                # 并行启动所有账号的流水线
+                await asyncio.gather(*[_pipeline_worker(aid) for aid in account_ids])
+                logger.info(f"流水线任务 {task.name} 全部账号执行完毕")
+
             # 检查最终取消状态
             final_result = await db.execute(select(Task).where(Task.id == task_id))
             final_task = final_result.scalar_one_or_none()
