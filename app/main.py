@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from contextlib import asynccontextmanager
 
@@ -28,12 +29,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(),
+        logging.StreamHandler(sys.stdout),
         logging.FileHandler(
             os.path.join(app_settings.LOG_DIR, "app.log"), encoding="utf-8"
         ),
     ],
 )
+# 降低 APScheduler 执行器日志级别，减少噪声
+logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 logger = logging.getLogger("tg-manager")
 
 
