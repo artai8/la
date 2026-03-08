@@ -28,6 +28,7 @@ RUN mkdir -p /app/logs /app/xray_configs
 
 # 环境变量默认值
 ENV PORT=8000 \
+    TZ=Asia/Shanghai \
     XRAY_BIN_PATH=/usr/local/bin/xray \
     XRAY_CONFIG_DIR=/app/xray_configs \
     LOG_DIR=/app/logs
