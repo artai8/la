@@ -13,12 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Task, TaskLog, Account, TelegramApiConfig
 from app.database import async_session_factory
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(
     jobstores={"default": MemoryJobStore()},
     job_defaults={"coalesce": True, "max_instances": 1},
+    timezone=settings.SCHEDULER_TIMEZONE,
 )
 
 
@@ -83,7 +85,7 @@ async def _execute_task(task_id: str):
             return
 
         task.status = "running"
-        task.last_run = datetime.utcnow()
+        task.last_run = datetime.now()
         task.progress_json = {}
         await db.commit()
 
@@ -366,20 +368,50 @@ async def _execute_task(task_id: str):
                 await db.commit()
 
 
+def _validate_cron_parts(parts: list[str]) -> bool:
+    """校验 cron 5 个字段的合法性"""
+    ranges = [
+        (0, 59),   # minute
+        (0, 23),   # hour
+        (1, 31),   # day
+        (1, 12),   # month
+        (0, 6),    # day_of_week
+    ]
+    for val, (lo, hi) in zip(parts, ranges):
+        if val == "*":
+            continue
+        # 支持 */n 和 n-m 形式
+        for segment in val.split(","):
+            segment = segment.split("/")[0]  # 去掉 /step
+            for v in segment.split("-"):
+                if v == "*":
+                    continue
+                try:
+                    n = int(v)
+                    if n < lo or n > hi:
+                        return False
+                except ValueError:
+                    return False
+    return True
+
+
 def register_task(task_id: str, cron_expression: str):
     """注册定时任务到 APScheduler"""
     try:
-        parts = cron_expression.split()
-        if len(parts) == 5:
+        # 只取前 5 个字段，忽略多余描述文字
+        parts = cron_expression.split()[:5]
+        if len(parts) == 5 and _validate_cron_parts(parts):
             trigger = CronTrigger(
                 minute=parts[0],
                 hour=parts[1],
                 day=parts[2],
                 month=parts[3],
                 day_of_week=parts[4],
+                timezone=settings.SCHEDULER_TIMEZONE,
             )
         else:
-            trigger = CronTrigger(hour=8, minute=0)  # 默认每天 8 点
+            logger.warning(f"Cron 表达式无效: '{cron_expression}'，使用默认 0 8 * * *")
+            trigger = CronTrigger(hour=8, minute=0, timezone=settings.SCHEDULER_TIMEZONE)
 
         scheduler.add_job(
             _execute_task,
@@ -388,7 +420,7 @@ def register_task(task_id: str, cron_expression: str):
             args=[task_id],
             replace_existing=True,
         )
-        logger.info(f"定时任务已注册: {task_id} cron={cron_expression}")
+        logger.info(f"定时任务已注册: {task_id} cron={' '.join(parts)}")
     except Exception as e:
         logger.error(f"注册定时任务失败: {e}")
 
