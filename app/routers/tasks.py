@@ -1,4 +1,5 @@
 """任务管理路由"""
+import re
 import logging
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -11,6 +12,10 @@ from app.services.task_scheduler import register_task, unregister_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+_CRON_RE = re.compile(
+    r'^([\d*/,-]+)\s+([\d*/,-]+)\s+([\d*/,-]+)\s+([\d*/,-]+)\s+([\d*/,-]+)'
+)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -117,6 +122,14 @@ async def create_task(
             "per_account_limit": per_account_limit,
             "source_group_ids": source_group_ids,
         }
+
+    # 清洗 cron 表达式：只保留前 5 个字段
+    m = _CRON_RE.match(cron_expression.strip())
+    if m:
+        cron_expression = ' '.join(m.groups())
+    else:
+        logger.warning(f"无效 cron 表达式: '{cron_expression}'，使用默认 0 8 * * *")
+        cron_expression = '0 8 * * *'
 
     task = Task(
         name=name,
