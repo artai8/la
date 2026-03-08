@@ -71,6 +71,9 @@ class AppSettings:
     # --- 代理 ---
     XRAY_SINGLE_PROCESS: bool = True  # 单 xray 进程多 inbound 模式
 
+    # --- 时区 ---
+    SCHEDULER_TIMEZONE: str = os.getenv("SCHEDULER_TIMEZONE", "Asia/Shanghai")
+
     # --- 路径 ---
     LOG_DIR: str = str(LOG_DIR)
 
