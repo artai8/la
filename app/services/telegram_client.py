@@ -311,7 +311,7 @@ async def restore_session(
             lang_code, system_lang_code, proxy_id,
         )
         if await client.is_user_authorized():
-            logger.info(f"Session 恢复成功: account={account_id}")
+            logger.debug(f"Session 恢复成功: account={account_id}")
             return True
         else:
             logger.warning(f"Session 无效: account={account_id}")
@@ -346,6 +346,7 @@ def get_connected_count() -> int:
 
 async def cleanup_idle_clients():
     """清理空闲超时的客户端（由定时器调用）"""
+    logger.debug("执行空闲客户端清理")
     await _pool.cleanup_idle()
 
 
