@@ -234,8 +234,15 @@ async def _invite_worker(
                     elif member.access_hash:
                         # 有 access_hash 时直接构建 InputPeerUser, 无需查找
                         user_entity = InputPeerUser(member.user_id, member.access_hash)
-                    else:
+                    elif member.user_id and member.user_id > 0:
                         user_entity = await client.get_entity(member.user_id)
+                    else:
+                        await _log(db, task_id, account_id, "WARNING",
+                                   f"跳过无效用户ID {member.user_id}（非正常用户）")
+                        member.invite_status = "failed"
+                        await db.commit()
+                        failed_count += 1
+                        continue
                 except Exception as e:
                     await _log(db, task_id, account_id, "WARNING",
                                f"无法获取用户 {member.user_id} ({member.username}): {e}")
