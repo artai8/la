@@ -58,37 +58,37 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-sm font-medium text-gray-300 mb-1">最小间隔（秒）</label>
-                        <input type="number" x-model.number="delayMin" min="5" max="600"
+                           <input type="number" x-model.number="delayMin" min="60" max="900"
                                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-300 mb-1">最大间隔（秒）</label>
-                        <input type="number" x-model.number="delayMax" min="10" max="900"
+                        <input type="number" x-model.number="delayMax" min="180" max="900"
                                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
                     </div>
                 </div>
-                <p class="text-xs text-gray-500 -mt-2">建议 30-120 秒，过快容易触发风控</p>
+                    <p class="text-xs text-gray-500 -mt-2">建议 180-600 秒，拉人间隔过短最容易触发 PeerFlood</p>
 
                 <div>
                     <label class="block text-sm font-medium text-gray-300 mb-1">并发账号数</label>
-                    <input type="number" x-model.number="concurrency" min="1" max="10"
+                                <input type="number" x-model.number="concurrency" min="1" max="1"
                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-gray-300 mb-1">每个账号邀请上限</label>
-                    <input type="number" x-model.number="perAccountLimit" min="1" max="200"
+                          <input type="number" x-model.number="perAccountLimit" min="1" max="20"
                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
-                    <p class="text-xs text-gray-500 mt-1">建议每日不超过 30-50 人</p>
+                          <p class="text-xs text-gray-500 mt-1">建议单次每账号 3-5 人，连续触发 PeerFlood 后先切回养号</p>
                 </div>
 
                 <div class="bg-gray-700/50 rounded-lg p-3 text-sm text-gray-400 space-y-1">
                     <p>⚠️ 注意事项：</p>
                     <ul class="list-disc list-inside text-xs space-y-0.5">
                         <li>邀请操作有被封号风险，请配合养号功能使用</li>
-                        <li>建议每个账号每天邀请不超过 50 人</li>
+                        <li>建议每个账号每天邀请不超过 5-10 人</li>
                         <li>对方隐私设置可能阻止邀请</li>
-                        <li>遇到 FloodWait 会自动等待后继续</li>
+                        <li>触发 PeerFlood 后账号会自动冷却，请勿立刻重复尝试</li>
                     </ul>
                 </div>
 
@@ -115,10 +115,10 @@ function invitePage() {
         sourceGroupIds: [],
         targetGroups: '',
         accountIds: [],
-        delayMin: 30,
-        delayMax: 60,
-        concurrency: 2,
-        perAccountLimit: 40,
+        delayMin: 180,
+        delayMax: 300,
+        concurrency: 1,
+        perAccountLimit: 5,
         loading: false,
         message: '',
         error: false,
