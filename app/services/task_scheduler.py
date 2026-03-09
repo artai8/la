@@ -145,31 +145,44 @@ async def _execute_task(task_id: str):
                     await _update_progress(task_id, {"completed_accounts": i + 1, "total_accounts": len(account_ids)}, db)
 
             elif task.task_type == "invite":
-                from app.services.invite_service import invite_members
+                from app.services.invite_service import invite_members, normalize_invite_runtime_params
                 from app.services.account_scheduler import select_accounts_for_invite
                 target_groups = config.get("target_groups", "").strip().splitlines()
                 source_group_ids = config.get("source_group_ids", [])
-                # 智能筛选可用账号（排除冷却/超限/新号）
-                per_limit = config.get("per_account_limit", 5)
-                eligible = await select_accounts_for_invite(account_ids, per_limit * len(account_ids), db)
-                filtered_ids = [acc.id for acc in eligible] if eligible else account_ids
-                if not filtered_ids:
-                    logger.warning(f"任务 {task.name}: 所有账号均在冷却/超限中")
-                    filtered_ids = account_ids  # 回退到全部
-                # 确保客户端已连接
-                await _ensure_task_clients(filtered_ids, db)
-                await invite_members(
-                    account_ids=filtered_ids,
-                    source_group_ids=source_group_ids,
-                    target_group_inputs=target_groups,
-                    db=db,
+                normalized = normalize_invite_runtime_params(
                     delay_min=config.get("delay_min", 300),
                     delay_max=config.get("delay_max", 600),
                     concurrency=config.get("concurrency", 1),
-                    per_account_limit=per_limit,
-                    use_remote_db=config.get("use_remote_db", False),
-                    task_id=task_id,
+                    per_account_limit=config.get("per_account_limit", 5),
                 )
+                # 智能筛选可用账号（排除冷却/超限/新号）
+                per_limit = normalized["per_account_limit"]
+                eligible = await select_accounts_for_invite(account_ids, per_limit * len(account_ids), db)
+                filtered_ids = [acc.id for acc in eligible]
+                if not filtered_ids:
+                    logger.warning(f"任务 {task.name}: 所有账号均在冷却/超限中")
+                    db.add(TaskLog(
+                        task_id=task_id,
+                        module="scheduler",
+                        level="WARNING",
+                        message=f"任务跳过: {task.name}，所有账号均在冷却/超限/养号期中",
+                    ))
+                    await db.commit()
+                else:
+                    # 确保客户端已连接
+                    await _ensure_task_clients(filtered_ids, db)
+                    await invite_members(
+                        account_ids=filtered_ids,
+                        source_group_ids=source_group_ids,
+                        target_group_inputs=target_groups,
+                        db=db,
+                        delay_min=normalized["delay_min"],
+                        delay_max=normalized["delay_max"],
+                        concurrency=normalized["concurrency"],
+                        per_account_limit=per_limit,
+                        use_remote_db=config.get("use_remote_db", False),
+                        task_id=task_id,
+                    )
 
             elif task.task_type == "chat":
                 from app.services.chat_service import send_messages
@@ -263,6 +276,11 @@ async def _execute_task(task_id: str):
                             # ---- 阶段 1: 拉人 ----
                             if await _check_cancelled(task_id, db):
                                 result_entry["phase"] = "cancelled"
+                                return
+                            eligible_invite = await select_accounts_for_invite([aid], 1, db)
+                            if not eligible_invite:
+                                result_entry["phase"] = "skipped"
+                                result_entry["error"] = "账号处于冷却/超限/养号期，跳过 invite 阶段"
                                 return
                             await _ensure_task_clients([aid], db)
                             inv_result = await invite_members(
