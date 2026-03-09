@@ -17,7 +17,7 @@
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-300 mb-1">任务类型</label>
-                <select x-model="form.task_type"
+                <select x-model="form.task_type" @change="applyTaskTypeDefaults(form.task_type)"
                         class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500">
                     <option value="">请选择</option>
                     <option value="scrape_members">采集群成员</option>
@@ -535,6 +535,23 @@ function tasksPage() {
         creating: false,
         formMessage: '',
         formError: false,
+
+        applyTaskTypeDefaults(taskType) {
+            if (taskType === 'invite') {
+                this.form.delay_min = 180;
+                this.form.delay_max = 300;
+                this.form.concurrency = 1;
+                this.form.per_account_limit = 5;
+                return;
+            }
+
+            if (taskType === 'chat') {
+                this.form.delay_min = 60;
+                this.form.delay_max = 120;
+                this.form.concurrency = 2;
+                this.form.per_account_limit = 100;
+            }
+        },
 
         async createTask() {
             if (!this.form.task_type || !this.form.cron_expression) {
