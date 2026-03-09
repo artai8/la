@@ -33,6 +33,59 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+MIN_INVITE_DELAY_SECONDS = 180
+MAX_INVITE_DELAY_SECONDS = 900
+MAX_INVITE_CONCURRENCY = 1
+MAX_INVITE_PER_ACCOUNT = 5
+
+RETRYABLE_INVITE_STATUSES = ("pending", "retry")
+TERMINAL_INVITE_STATUSES = (
+    "success",
+    "failed",
+    "invalid_user",
+    "resolve_fail",
+    "privacy_block",
+    "no_mutual",
+    "too_many_groups",
+    "kicked",
+    "banned",
+    "deactivated",
+)
+
+PERMANENT_ENTITY_ERROR_MARKERS = (
+    "invalid object id",
+    "could not find the input entity",
+    "cannot find any entity corresponding",
+    "no user has",
+)
+
+
+def normalize_invite_runtime_params(
+    delay_min: int,
+    delay_max: int,
+    concurrency: int,
+    per_account_limit: int,
+) -> dict[str, int]:
+    """Clamp invite runtime parameters to a conservative range."""
+    normalized_delay_min = max(MIN_INVITE_DELAY_SECONDS, int(delay_min or 0))
+    normalized_delay_max = min(MAX_INVITE_DELAY_SECONDS, int(delay_max or 0) or normalized_delay_min)
+    normalized_delay_max = max(normalized_delay_min, normalized_delay_max)
+
+    return {
+        "delay_min": normalized_delay_min,
+        "delay_max": normalized_delay_max,
+        "concurrency": max(1, min(MAX_INVITE_CONCURRENCY, int(concurrency or 1))),
+        "per_account_limit": max(1, min(MAX_INVITE_PER_ACCOUNT, int(per_account_limit or 1))),
+    }
+
+
+def _classify_entity_lookup_error(error: Exception) -> str:
+    """Map entity lookup failures to terminal or retryable statuses."""
+    message = str(error).lower()
+    if any(marker in message for marker in PERMANENT_ENTITY_ERROR_MARKERS):
+        return "invalid_user"
+    return "resolve_fail"
+
 
 async def _log(db: AsyncSession, task_id: str | None, account_id: str, level: str, message: str):
     """写日志"""
@@ -93,10 +146,16 @@ async def invite_members(
     results_lock = asyncio.Lock()
 
     # 参数安全兜底，避免外部传入过于激进的值触发风控。
-    concurrency = max(1, concurrency)
-    per_account_limit = max(1, per_account_limit)
-    delay_min = max(60, delay_min)
-    delay_max = max(delay_min, delay_max)
+    normalized = normalize_invite_runtime_params(
+        delay_min=delay_min,
+        delay_max=delay_max,
+        concurrency=concurrency,
+        per_account_limit=per_account_limit,
+    )
+    concurrency = normalized["concurrency"]
+    per_account_limit = normalized["per_account_limit"]
+    delay_min = normalized["delay_min"]
+    delay_max = normalized["delay_max"]
 
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -190,7 +249,7 @@ async def _invite_worker(
             and_(
                 ScrapedMember.group_id.in_(source_group_ids),
                 ScrapedMember.is_invited == False,
-                ScrapedMember.invite_status != "failed",
+                ScrapedMember.invite_status.in_(RETRYABLE_INVITE_STATUSES),
                 ScrapedMember.is_bot == False,
                 ScrapedMember.is_admin == False,
             )
@@ -239,14 +298,15 @@ async def _invite_worker(
                     else:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"跳过无效用户ID {member.user_id}（非正常用户）")
-                        member.invite_status = "failed"
+                        member.invite_status = "invalid_user"
                         await db.commit()
                         failed_count += 1
                         continue
                 except Exception as e:
+                    status = _classify_entity_lookup_error(e)
                     await _log(db, task_id, account_id, "WARNING",
                                f"无法获取用户 {member.user_id} ({member.username}): {e}")
-                    member.invite_status = "failed"
+                    member.invite_status = status
                     await db.commit()
                     failed_count += 1
                     continue
@@ -270,32 +330,32 @@ async def _invite_worker(
                     except UserPrivacyRestrictedError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 隐私设置限制")
-                        member.invite_status = "failed"
+                        member.invite_status = "privacy_block"
                         break
                     except UserNotMutualContactError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 非互相联系人")
-                        member.invite_status = "failed"
+                        member.invite_status = "no_mutual"
                         break
                     except UserChannelsTooMuchError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 加入的群过多")
-                        member.invite_status = "failed"
+                        member.invite_status = "too_many_groups"
                         break
                     except UserKickedError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 已被踢出")
-                        member.invite_status = "failed"
+                        member.invite_status = "kicked"
                         break
                     except UserBannedInChannelError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 已被封禁")
-                        member.invite_status = "failed"
+                        member.invite_status = "banned"
                         break
                     except InputUserDeactivatedError:
                         await _log(db, task_id, account_id, "WARNING",
                                    f"用户 {member.username or member.user_id} 账号已注销")
-                        member.invite_status = "failed"
+                        member.invite_status = "deactivated"
                         break
                     except ChatWriteForbiddenError:
                         await _log(db, task_id, account_id, "ERROR",
@@ -332,8 +392,8 @@ async def _invite_worker(
                     async with results_lock:
                         results["total_invited"] = results.get("total_invited", 0) + 1
                 else:
-                    if member.invite_status != "failed":
-                        member.invite_status = "failed"
+                    if member.invite_status in RETRYABLE_INVITE_STATUSES:
+                        member.invite_status = "retry"
                     failed_count += 1
                     async with results_lock:
                         results["total_failed"] = results.get("total_failed", 0) + 1
@@ -356,7 +416,7 @@ async def _invite_worker(
             except Exception as e:
                 msg = f"拉取用户 {member.user_id} 失败: {e}"
                 await _log(db, task_id, account_id, "ERROR", msg)
-                member.invite_status = "failed"
+                member.invite_status = _classify_entity_lookup_error(e)
                 await db.commit()
                 failed_count += 1
                 async with results_lock:
