@@ -139,7 +139,7 @@ class ScrapedMember(Base):
     is_admin = Column(Boolean, default=False)
     is_bot = Column(Boolean, default=False)
     is_invited = Column(Boolean, default=False)
-    invite_status = Column(String(16), default="pending")  # pending / success / failed
+    invite_status = Column(String(16), default="pending")  # pending / retry / success / <short_reason>
     scraped_by = Column(String(36), ForeignKey("accounts.id"), nullable=True)
     scraped_at = Column(DateTime, default=_utcnow)
 
