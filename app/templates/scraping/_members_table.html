@@ -47,12 +47,25 @@
                     {% endif %}
                 </td>
                 <td class="px-4 py-3 text-xs">
+                    {% set invite_labels = {
+                        'success': '✓ 已邀请',
+                        'retry': '↻ 待重试',
+                        'invalid_user': '✗ 无效用户',
+                        'resolve_fail': '✗ 解析失败',
+                        'privacy_block': '✗ 隐私限制',
+                        'no_mutual': '✗ 非互相联系人',
+                        'too_many_groups': '✗ 加群过多',
+                        'kicked': '✗ 已被踢出',
+                        'banned': '✗ 已被封禁',
+                        'deactivated': '✗ 账号已注销',
+                        'failed': '✗ 失败'
+                    } %}
                     {% if member.invite_status == 'success' %}
                     <span class="text-green-400">✓ 已邀请</span>
-                    {% elif member.invite_status == 'failed' %}
-                    <span class="text-red-400">✗ 失败</span>
+                    {% elif member.invite_status in ['pending', 'retry', '', None] %}
+                    <span class="text-gray-500">{{ invite_labels.get(member.invite_status, '待处理') }}</span>
                     {% else %}
-                    <span class="text-gray-500">待处理</span>
+                    <span class="text-red-400">{{ invite_labels.get(member.invite_status, member.invite_status) }}</span>
                     {% endif %}
                 </td>
                 <td class="px-4 py-3 text-gray-400 text-xs">
