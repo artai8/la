@@ -9,6 +9,7 @@ from sqlalchemy import select, delete, func
 from app.database import get_db
 from app.models import Task, Account, Group, ScrapedMember, TaskLog
 from app.services.task_scheduler import register_task, unregister_task
+from app.services.invite_service import normalize_invite_runtime_params
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -90,6 +91,28 @@ async def create_task(
     }
     if not name:
         name = type_names.get(task_type, task_type)
+
+    if task_type == "invite":
+        normalized = normalize_invite_runtime_params(
+            delay_min=delay_min,
+            delay_max=delay_max,
+            concurrency=concurrency,
+            per_account_limit=per_account_limit,
+        )
+        delay_min = normalized["delay_min"]
+        delay_max = normalized["delay_max"]
+        concurrency = normalized["concurrency"]
+        per_account_limit = normalized["per_account_limit"]
+    elif task_type == "pipeline":
+        normalized_invite = normalize_invite_runtime_params(
+            delay_min=invite_delay_min,
+            delay_max=invite_delay_max,
+            concurrency=1,
+            per_account_limit=invite_per_account_limit,
+        )
+        invite_delay_min = normalized_invite["delay_min"]
+        invite_delay_max = normalized_invite["delay_max"]
+        invite_per_account_limit = normalized_invite["per_account_limit"]
 
     # 根据任务类型构建配置
     if task_type == "pipeline":
