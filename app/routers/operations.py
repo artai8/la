@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 
 from app.database import get_db, async_session_factory
 from app.models import Account, Group, ScrapedMember, ScrapedMessage, TelegramApiConfig
-from app.services.invite_service import invite_members
+from app.services.invite_service import invite_members, normalize_invite_runtime_params
 from app.services.chat_service import send_messages
 from app.services.account_scheduler import select_accounts_for_invite, select_accounts_for_chat
 from app.services import telegram_client as tc
@@ -86,9 +86,20 @@ async def start_invite(
     if not account_ids:
         return JSONResponse({"status": "error", "message": "请选择执行账号"})
 
+    normalized = normalize_invite_runtime_params(
+        delay_min=delay_min,
+        delay_max=delay_max,
+        concurrency=concurrency,
+        per_account_limit=per_account_limit,
+    )
+    delay_min = normalized["delay_min"]
+    delay_max = normalized["delay_max"]
+    concurrency = normalized["concurrency"]
+    per_account_limit = normalized["per_account_limit"]
+
     # 智能筛选可用账号（排除冷却/超限/新号）
     eligible_accounts = await select_accounts_for_invite(account_ids, per_account_limit * len(account_ids), db)
-    filtered_ids = [acc.id for acc in eligible_accounts] if eligible_accounts else account_ids
+    filtered_ids = [acc.id for acc in eligible_accounts]
     if not filtered_ids:
         return JSONResponse({"status": "error", "message": "所有选中账号均在冷却/超限中"})
 
